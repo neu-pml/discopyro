@@ -26,7 +26,11 @@ class Closed(Generic[T], Ob):
         return result
 
 class CartesianClosed(Closed[Ty]):
-    pass
+    def __len__(self):
+        return self.match(
+            base=lambda ty: len(ty),
+            var=lambda v: v,
+        )
 
 def unique_identifier():
     return uuid.uuid4().hex[:7]
