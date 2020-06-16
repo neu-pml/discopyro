@@ -114,4 +114,4 @@ def unfold_arrow(arrow):
     )
 
 def smc_type(t):
-    return Ty(str(t))
+    return Ty(t)
