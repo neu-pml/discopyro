@@ -138,6 +138,14 @@ class TypedFunction(Function):
         """
         return self._type
 
+    @property
+    def typed_dom(self):
+        return self.type.arrow()[0]
+
+    @property
+    def typed_cod(self):
+        return self.type.arrow()[1]
+
     def __repr__(self):
         dom, cod = self.type.arrow()
         return "TypedFunction(dom={}, cod={}, function={})".format(
