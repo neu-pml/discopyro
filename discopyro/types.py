@@ -1,5 +1,5 @@
 from adt import adt, Case
-from discopy import Ty
+from discopy import Ob
 import torch
 import uuid
 
@@ -15,7 +15,7 @@ def _label_dtype(dtype):
 @adt
 class FirstOrderType:
     TENSORT: Case[torch.dtype, torch.Size]
-    VART: Case[Ty]
+    VART: Case[Ob]
     ARROWT: Case["FirstOrderType", "FirstOrderType"]
 
     def _pretty(self, parenthesize=False):
@@ -113,5 +113,5 @@ def unfold_arrow(arrow):
         arrowt=lambda l, r: [l] + unfold_arrow(r)
     )
 
-def smc_type(t):
-    return Ty(t)
+def smc_object(t):
+    return Ob(t)
