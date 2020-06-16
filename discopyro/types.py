@@ -15,14 +15,14 @@ def _label_dtype(dtype):
 @adt
 class FirstOrderType:
     TENSORT: Case[torch.dtype, torch.Size]
-    VART: Case[str]
+    VART: Case[Ty]
     ARROWT: Case["FirstOrderType", "FirstOrderType"]
 
     def _pretty(self, parenthesize=False):
         result = self.match(
             tensort=lambda dtype, size: '%s^%d' % (_label_dtype(dtype),
                                                    size[0]),
-            vart=lambda name: name,
+            vart=lambda name: str(name),
             arrowt=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
         )
         if parenthesize and self._key == FirstOrderType._Key.ARROWT:
