@@ -1,5 +1,7 @@
 from adt import adt, Case
-from discopy import Ob, Ty
+from discopy import messages, Ob, Ty
+from discopy.cartesian import Function, tuplify
+from discopy.cat import AxiomError
 import functools
 from typing import Generic, TypeVar
 import uuid
@@ -118,3 +120,39 @@ def unfold_arrow(arrow):
         var=lambda v: [Closed.VAR(v)],
         arrow=lambda l, r: [l] + unfold_arrow(r)
     )
+
+class TypedFunction(Function):
+    def __init__(self, dom, cod, function):
+        # Deconstruct the type here into dom, cod, and self.forward
+        dom = closed.unfold_arrow(dom)
+        cod = closed.unfold_arrow(cod)
+        super().__init__(len(dom), len(cod), function)
+        self._type = closed.fold_arrow(dom + cod)
+
+    @property
+    def type(self):
+        """
+        Type signature for an explicitly typed arrow between objects
+
+        :return: A CartesianClosed for the arrow's type
+        """
+        return self._type
+
+    def __repr__(self):
+        dom, cod = self.type.arrow()
+        return "TypedFunction(dom={}, cod={}, function={})".format(
+            dom, cod, repr(self.function)
+        )
+
+    def then(self, other):
+        if isinstance(other, TypedFunction):
+            tx = self.type
+            dom, midx = tx.arrow()
+            ty = other.type
+            midy, cod = ty.arrow()
+            subst = unifier(midx, midy)
+            if subst is None:
+                raise AxiomError(messages.does_not_compose(self, other))
+            return TypedFunction(substitute(dom, subst), substitute(cod, subst),
+                                 lambda *vals: other(*tuplify(self(*vals))))
+        return super().then(other)
