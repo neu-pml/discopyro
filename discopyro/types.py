@@ -1,48 +1,37 @@
 from adt import adt, Case
-from discopy import Ob
-import torch
+from discopy import Ob, Ty
+import functools
+from typing import Generic, TypeVar
 import uuid
 
-def _label_dtype(dtype):
-    if dtype == torch.int:
-        return 'Z'
-    if dtype == torch.uint8:
-        return 'Char'
-    if dtype == torch.float:
-        return 'R'
-    raise NotImplementedError()
+T = TypeVar('T', bound=Ob)
 
 @adt
-class FirstOrderType:
-    TENSORT: Case[torch.dtype, torch.Size]
-    VART: Case[Ob]
-    ARROWT: Case["FirstOrderType", "FirstOrderType"]
+class Closed(Generic[T], Ob):
+    BASE: Case[T]
+    VAR: Case[str]
+    ARROW: Case["Closed[T]", "Closed[T]"]
+
+    def __init__(self):
+        super().__init__(self._pretty(False))
 
     def _pretty(self, parenthesize=False):
         result = self.match(
-            tensort=lambda dtype, size: '%s^%d' % (_label_dtype(dtype),
-                                                   size[0]),
-            vart=lambda name: str(name),
-            arrowt=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
+            base_ob=lambda ob: str(ob),
+            arrow_ob=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
         )
-        if parenthesize and self._key == FirstOrderType._Key.ARROWT:
+        if parenthesize and self._key == Closed._Key.ARROW:
             result = '(%s)' % result
         return result
 
-    def __str__(self):
-        return self._pretty(False)
-
-    def __repr__(self):
-        return str(self)
-
-    def __hash__(self):
-        return hash(str(self))
+class CartesianClosed(Closed[Ty]):
+    pass
 
 def unique_identifier():
     return uuid.uuid4().hex[:7]
 
-def unique_vart():
-    return FirstOrderType.VART(unique_identifier())
+def unique_closed():
+    return Closed.BASE(Ob(unique_identifier()))
 
 UNIFICATION_EXCEPTION_MSG = 'Could not unify %s with %s'
 SUBSTITUTION_EXCEPTION_MSG = 'to substitute for %s'
@@ -57,26 +46,39 @@ class UnificationException(Exception):
         else:
             self.message = UNIFICATION_EXCEPTION_MSG % (x, y)
 
+def try_merge_substitution(lsub, rsub):
+    subst = {}
+    for k in {**lsub, **rsub}.keys():
+        if k in lsub and k in rsub:
+            _, sub = try_unify(lsub[k], rsub[k])
+            subst.update(sub)
+        elif k in lsub:
+            subst[k] = lsub[k]
+        elif k in rsub:
+            subst[k] = rsub[k]
+    return subst
+
 def try_unify(a, b, subst={}):
+    if isinstance(a, Ty) and isinstance(b, Ty):
+        results = [try_unify(ak, bk) for ak, bk in zip(a.objects, b.objects)]
+        ty = Ty(*[ty for ty, _ in results])
+        subst = functools.reduce(try_merge_substitution,
+                                 [subst for _, subst in results])
+        return ty, subst
     if a == b:
         return a, {}
-    if a._key == FirstOrderType._Key.VART:
-        return b, {a.vart(): b}
-    if b._key == FirstOrderType._Key.VART:
-        return a, {b.vart(): a}
-    if a._key == FirstOrderType._Key.ARROWT and\
-       b._key == FirstOrderType._Key.ARROWT:
-        (la, ra) = a.arrowt()
-        (lb, rb) = b.arrowt()
+    if a._key == Closed._Key.VAR:
+        return b, {a.var(): b}
+    if b._key == Closed._Key.VAR:
+        return a, {b.var(): a}
+    if a._key == Closed._Key.ARROW and\
+       b._key == Closed._Key.ARROW:
+        (la, ra) = a.arrow()
+        (lb, rb) = b.arrow()
         l, lsub = try_unify(la, lb)
         r, rsub = try_unify(ra, rb)
-        for k in {**lsub, **rsub}.keys():
-            if k in lsub and k in rsub:
-                _, sub = try_unify(lsub[k], rsub[k])
-                subst.update(sub)
-        subst.update(lsub)
-        subst.update(rsub)
-        return FirstOrderType.ARROWT(l, r), subst
+        subst = try_merge_substitution(lsub, rsub)
+        return Closed.ARROW(l, r), subst
     raise UnificationException(a, b)
 
 def unify(a, b, substitution={}):
@@ -95,23 +97,19 @@ def unifier(a, b, substitution={}):
 
 def substitute(t, sub):
     return t.match(
-        tensort=FirstOrderType.TENSORT,
-        vart=lambda m: sub[m] if m in sub else FirstOrderType.VART(m),
-        arrowt=lambda l, r: FirstOrderType.ARROWT(substitute(l, sub),
-                                                  substitute(r, sub))
+        base=Closed.BASE,
+        var=lambda m: sub[m] if m in sub else Closed.VAR(m),
+        arrow=lambda l, r: Closed.ARROW(substitute(l, sub), substitute(r, sub))
     )
 
 def fold_arrow(ts):
     if len(ts) == 1:
         return ts[-1]
-    return fold_arrow(ts[:-2] + [FirstOrderType.ARROWT(ts[-2], ts[-1])])
+    return fold_arrow(ts[:-2] + [Closed.ARROW(ts[-2], ts[-1])])
 
 def unfold_arrow(arrow):
     return arrow.match(
-        tensort=lambda dtype, size: [FirstOrderType.TENSORT(dtype, size)],
-        vart=lambda v: [FirstOrderType.VART(v)],
-        arrowt=lambda l, r: [l] + unfold_arrow(r)
+        base=lambda ob: [ob],
+        var=lambda v: [Closed.VAR(v)],
+        arrow=lambda l, r: [l] + unfold_arrow(r)
     )
-
-def smc_object(t):
-    return Ob(t)
