@@ -123,13 +123,14 @@ class CartesianCategory(pyro.nn.PyroModule):
         return -torch.log(diffusions)
 
     @pnn.pyro_method
-    def product_arrow(self, ty, depth=0, min_depth=0, infer={}):
-        entries = [self.forward(obj, depth + 1, min_depth, infer)
+    def product_arrow(self, ty, depth=0, min_depth=0, infer={},
+                      confidence=None):
+        entries = [self.forward(obj, depth + 1, min_depth, infer, confidence)
                    for obj in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
-    def path_between(self, src, dest, min_depth=0, infer={}):
+    def path_between(self, src, dest, confidence, min_depth=0, infer={}):
         assert src != closed.CartesianClosed.BASE(Ty())
         assert dest != closed.CartesianClosed.BASE(Ty())
 
@@ -144,7 +145,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                                 self._graph[dest]['index']) for g in generators]
                 distances_to_dest = distances[gen_indices]
                 generators_categorical = dist.Categorical(
-                    probs=F.softmin(distances_to_dest, dim=0)
+                    probs=F.softmin(confidence * distances_to_dest, dim=0)
                 ).to_event(0)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical, infer=infer)
@@ -152,12 +153,13 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         return functools.reduce(lambda f, g: f >> g, path)
 
-    def forward(self, obj, depth=0, min_depth=0, infer={}):
-        confidence = pyro.sample(
-            'distances_confidence',
-            dist.Gamma(self.confidence_alpha,
-                       self.confidence_beta).to_event(0)
-        )
+    def forward(self, obj, depth=0, min_depth=0, infer={}, confidence=None):
+        if confidence is None:
+            confidence = pyro.sample(
+                'distances_confidence',
+                dist.Gamma(self.confidence_alpha,
+                           self.confidence_beta).to_event(0)
+            )
 
         generators, distances = self._object_generators(obj, False)
         generators.append(None)
@@ -177,9 +179,11 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         if generator is None:
             result = obj.match(
-                base=lambda ty: self.product_arrow(ty, depth, min_depth, infer),
+                base=lambda ty: self.product_arrow(ty, depth, min_depth, infer,
+                                                   confidence),
                 var=lambda v: closed.UnificationException(None, None, v),
-                arrow=lambda l, r: self.path_between(l, r, min_depth=min_depth)
+                arrow=lambda l, r: self.path_between(l, r, confidence,
+                                                     min_depth=min_depth)
             )
         elif generator.cod == Ty() and depth >= min_depth:
             result = generator
