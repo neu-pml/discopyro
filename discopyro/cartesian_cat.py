@@ -184,8 +184,8 @@ class CartesianCategory(pyro.nn.PyroModule):
         elif generator.cod == Ty() and depth >= min_depth:
             result = generator
         else:
-            predecessor = self.arrow_into(generator.typed_cod,
-                                          depth + 1, min_depth, infer)
+            predecessor = self.forward(generator.typed_cod, depth + 1,
+                                       min_depth, infer)
             result = predecessor >> generator
 
         return result
