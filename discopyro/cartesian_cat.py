@@ -84,10 +84,12 @@ class CartesianCategory(pyro.nn.PyroModule):
         generator_distances = torch.stack(arrow_distances[arrow_indices], dim=0)
         return generators, generator_distances
 
-    def _object_elements(self, obj):
+    def _object_elements(self, obj, global_element_weights=None):
+        if global_element_weights is None:
+            global_element_weights = self.global_element_weights
         index = self._graph[obj]['object_index']
         elements = self._graph[obj]['global_elements']
-        weights = self.global_element_weights[index, :len(elements)]
+        weights = global_element_weights[index, :len(elements)]
         return elements, weights
 
     @property
