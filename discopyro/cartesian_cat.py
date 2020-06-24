@@ -70,7 +70,9 @@ class CartesianCategory(pyro.nn.PyroModule):
         return (self.object_weights.shape, self.global_element_weights.shape,
                 self.arrow_distances.shape, self.confidence_alpha.shape * 2)
 
-    def _object_generators(self, obj, forward=True):
+    def _object_generators(self, obj, forward=True, arrow_distances=None):
+        if arrow_distances is None:
+            arrow_distances = self.arrow_distances
         edges = self._graph.out_edges if forward else self._graph.in_edges
         dir_index = 1 if forward else 0
         generators = []
@@ -79,8 +81,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             gen = edge[dir_index]
             generators.append(gen)
             arrow_indices.append(self._graph[gen]['arrow_index'])
-        generator_distances = torch.stack(self.arrow_distances[arrow_indices],
-                                          dim=0)
+        generator_distances = torch.stack(arrow_distances[arrow_indices], dim=0)
         return generators, generator_distances
 
     def _object_elements(self, obj):
