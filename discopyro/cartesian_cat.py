@@ -55,8 +55,6 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         max_elements = max([len(self._graph[obj]['global_elements'])
                             for obj in self.obs])
-        self.object_weights = pnn.PyroParam(torch.ones(len(self.obs)),
-                                            constraint=constraints.positive)
         self.global_element_weights = pnn.PyroParam(
             torch.ones(len(self.obs), max_elements),
             constraint=constraints.positive
@@ -70,8 +68,8 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @property
     def param_shapes(self):
-        return (self.object_weights.shape, self.global_element_weights.shape,
-                self.arrow_distances.shape, self.confidence_alpha.shape * 2)
+        return (self.global_element_weights.shape, self.arrow_distances.shape,
+                self.confidence_alpha.shape * 2)
 
     def _object_generators(self, obj, forward=True, arrow_distances=None):
         if arrow_distances is None:
