@@ -1,3 +1,4 @@
+import collections
 from discopy import Ty
 import functools
 from indexed import IndexedOrderedDict
@@ -13,6 +14,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from . import closed
+
+NONE_DEFAULT = collections.defaultdict(lambda: None)
 
 class CartesianCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
@@ -134,23 +137,26 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @pnn.pyro_method
     def product_arrow(self, ty, depth=0, min_depth=0, infer={},
-                      confidence=None):
-        entries = [self.forward(obj, depth + 1, min_depth, infer, confidence)
-                   for obj in ty.objects]
+                      confidence=None, params=NONE_DEFAULT):
+        entries = [self.forward(obj, depth + 1, min_depth, infer, confidence,
+                                params) for obj in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
-    def path_between(self, src, dest, confidence, min_depth=0, infer={}):
+    def path_between(self, src, dest, confidence, min_depth=0, infer={},
+                     params=NONE_DEFAULT):
         assert src != closed.CartesianClosed.BASE(Ty())
         assert dest != closed.CartesianClosed.BASE(Ty())
 
         location = src
-        distances = self.diffusion_distances()
+        distances = self.diffusion_distances(params['arrow_distances'])
 
         path = []
         with pyro.markov():
             while location != dest and len(path) < min_depth:
-                generators, _ = self._object_generators(location, True)
+                generators, _ = self._object_generators(
+                    location, True, params['arrow_distances']
+                )
                 gen_indices = [(self._graph[g]['index'],
                                 self._graph[dest]['index']) for g in generators]
                 distances_to_dest = distances[gen_indices]
@@ -163,7 +169,8 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         return functools.reduce(lambda f, g: f >> g, path)
 
-    def forward(self, obj, depth=0, min_depth=0, infer={}, confidence=None):
+    def forward(self, obj, depth=0, min_depth=0, infer={}, confidence=None,
+                params=NONE_DEFAULT):
         if confidence is None:
             confidence = pyro.sample(
                 'distances_confidence',
@@ -171,11 +178,15 @@ class CartesianCategory(pyro.nn.PyroModule):
                            self.confidence_beta).to_event(0)
             )
 
-        generators, distances = self._object_generators(obj, False)
+        generators, distances = self._object_generators(
+            obj, False, params['arrow_distances']
+        )
         generators.append(None)
         distances = torch.cat((distances, distances.new_ones(1)), dim=0)
         if depth >= min_depth:
-            elements, weights = self._object_elements(obj)
+            elements, weights = self._object_elements(
+                obj, params['global_element_weights']
+            )
             generators = generators + elements
             distances = torch.cat((distances + depth, -weights),
                                   dim=0)
@@ -190,16 +201,17 @@ class CartesianCategory(pyro.nn.PyroModule):
         if generator is None:
             result = obj.match(
                 base=lambda ty: self.product_arrow(ty, depth, min_depth, infer,
-                                                   confidence),
+                                                   confidence, params),
                 var=lambda v: closed.UnificationException(None, None, v),
                 arrow=lambda l, r: self.path_between(l, r, confidence,
-                                                     min_depth=min_depth)
+                                                     min_depth=min_depth,
+                                                     params=params)
             )
         elif generator.cod == Ty() and depth >= min_depth:
             result = generator
         else:
             predecessor = self.forward(generator.typed_cod, depth + 1,
-                                       min_depth, infer)
+                                       min_depth, infer, params)
             result = predecessor >> generator
 
         return result
