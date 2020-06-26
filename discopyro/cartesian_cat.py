@@ -48,12 +48,12 @@ class CartesianCategory(pyro.nn.PyroModule):
             if isinstance(elem.function, nn.Module):
                 k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
                 self.add_module('global_element_%d' % k, elem.function)
-            self._graph[elem.typed_cod]['global_elements'] = tuple(
+            self._graph.nodes[elem.typed_cod]['global_elements'] = tuple(
                 list(self._graph.nodes[elem.typed_cod]['global_elements']) +\
                 [elem]
             )
 
-        max_elements = max([len(self._graph[obj]['global_elements'])
+        max_elements = max([len(self._graph.nodes[obj]['global_elements'])
                             for obj in self.obs])
         self.global_element_weights = pnn.PyroParam(
             torch.ones(len(self.obs), max_elements),
