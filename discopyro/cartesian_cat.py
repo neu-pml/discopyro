@@ -95,15 +95,13 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @property
     def obs(self):
-        for node in self._graph:
-            if isinstance(node, closed.CartesianClosed):
-                yield node
+        return [node for node in self._graph
+                if isinstance(node, closed.CartesianClosed)]
 
     @property
     def ars(self):
-        for node in self._graph:
-            if isinstance(node, closed.TypedFunction):
-                yield node
+        return [node for node in self._graph
+                if isinstance(node, closed.TypedFunction)]
 
     @pnn.pyro_method
     def diffusion_distances(self, arrow_distances=None):
