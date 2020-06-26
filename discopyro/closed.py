@@ -116,8 +116,8 @@ def fold_arrow(ts):
 
 def unfold_arrow(arrow):
     return arrow.match(
-        base=lambda ob: [ob],
-        var=lambda v: [Closed.VAR(v)],
+        base=lambda ob: [CartesianClosed.BASE(ob)],
+        var=lambda v: [CartesianClosed.VAR(v)],
         arrow=lambda l, r: [l] + unfold_arrow(r)
     )
 
