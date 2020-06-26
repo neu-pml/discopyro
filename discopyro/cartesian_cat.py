@@ -34,8 +34,8 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.add_edge(gen.typed_dom, gen)
             self._graph.add_edge(gen, gen.typed_cod)
 
-            if isinstance(gen, nn.Module):
-                self.add_module('generator_%d' % i, gen)
+            if isinstance(gen.function, nn.Module):
+                self.add_module('generator_%d' % i, gen.function)
 
         for i, obj in enumerate(self.obs):
             self._graph[obj]['object_index'] = i
@@ -45,10 +45,10 @@ class CartesianCategory(pyro.nn.PyroModule):
             assert isinstance(elem, closed.TypedFunction)
             assert elem.typed_dom == closed.CartesianClosed.BASE(Ty())
 
-            if isinstance(elem, nn.Module):
+            if isinstance(elem.function, nn.Module):
                 k = len(self._graph[elem.typed_cod]['global_elements'])
                 self.add_module('global_element_%s_%d' % (elem.typed_cod, k),
-                                elem)
+                                elem.function)
             self._graph[elem.typed_cod]['global_elements'] = tuple(
                 list(self._graph[elem.typed_cod]['global_elements']) + [elem]
             )
