@@ -38,19 +38,20 @@ class CartesianCategory(pyro.nn.PyroModule):
                 self.add_module('generator_%d' % i, gen.function)
 
         for i, obj in enumerate(self.obs):
-            self._graph[obj]['object_index'] = i
-            self._graph[obj]['global_elements'] = []
+            self._graph.nodes[obj]['object_index'] = i
+            self._graph.nodes[obj]['global_elements'] = []
 
         for elem in global_elements:
             assert isinstance(elem, closed.TypedFunction)
             assert elem.typed_dom == closed.CartesianClosed.BASE(Ty())
 
             if isinstance(elem.function, nn.Module):
-                k = len(self._graph[elem.typed_cod]['global_elements'])
+                k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
                 self.add_module('global_element_%s_%d' % (elem.typed_cod, k),
                                 elem.function)
             self._graph[elem.typed_cod]['global_elements'] = tuple(
-                list(self._graph[elem.typed_cod]['global_elements']) + [elem]
+                list(self._graph.nodes[elem.typed_cod]['global_elements']) +\
+                [elem]
             )
 
         max_elements = max([len(self._graph[obj]['global_elements'])
