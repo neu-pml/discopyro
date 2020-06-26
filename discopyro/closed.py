@@ -124,10 +124,10 @@ def unfold_arrow(arrow):
 class TypedFunction(Function):
     def __init__(self, dom, cod, function):
         # Deconstruct the type here into dom, cod, and self.forward
-        dom = closed.unfold_arrow(dom)
-        cod = closed.unfold_arrow(cod)
+        dom = unfold_arrow(dom)
+        cod = unfold_arrow(cod)
         super().__init__(len(dom), len(cod), function)
-        self._type = closed.fold_arrow(dom + cod)
+        self._type = fold_arrow(dom + cod)
 
     @property
     def type(self):
