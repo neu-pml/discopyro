@@ -47,8 +47,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             if isinstance(elem.function, nn.Module):
                 k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
-                self.add_module('global_element_%s_%d' % (elem.typed_cod, k),
-                                elem.function)
+                self.add_module('global_element_%d' % k, elem.function)
             self._graph[elem.typed_cod]['global_elements'] = tuple(
                 list(self._graph.nodes[elem.typed_cod]['global_elements']) +\
                 [elem]
