@@ -26,11 +26,9 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             if gen.typed_dom not in self._graph:
                 self._graph.add_node(gen.typed_dom, index=len(self._graph))
-            if gen not in self._graph:
-                self._graph.add_node(gen.typed_dom, index=len(self._graph),
-                                     arrow_index=i)
+            self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
             if gen.typed_cod not in self._graph:
-                self._graph.add_node(gen.typed_dom, index=len(self._graph))
+                self._graph.add_node(gen.typed_cod, index=len(self._graph))
             self._graph.add_edge(gen.typed_dom, gen)
             self._graph.add_edge(gen, gen.typed_cod)
 
