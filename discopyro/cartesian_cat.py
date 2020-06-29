@@ -80,8 +80,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             gen = edge[dir_index]
             generators.append(gen)
             arrow_indices.append(self._graph.nodes[gen]['arrow_index'])
-        generator_distances = torch.stack(arrow_distances[arrow_indices], dim=0)
-        return generators, generator_distances
+        return generators, arrow_distances[arrow_indices]
 
     def _object_elements(self, obj, global_element_weights=None):
         if global_element_weights is None:
