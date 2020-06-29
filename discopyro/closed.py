@@ -34,6 +34,8 @@ class CartesianClosed(Closed[Ty]):
             var=lambda v: v,
         )
 
+TOP = CartesianClosed.BASE(Ty())
+
 def unique_identifier():
     return uuid.uuid4().hex[:7]
 
