@@ -41,7 +41,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         for elem in global_elements:
             assert isinstance(elem, closed.TypedFunction)
-            assert elem.typed_dom == closed.CartesianClosed.BASE(Ty())
+            assert elem.typed_dom == closed.TOP
 
             if isinstance(elem.function, nn.Module):
                 k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
@@ -135,8 +135,8 @@ class CartesianCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def path_between(self, src, dest, confidence, min_depth=0, infer={},
                      params=NONE_DEFAULT):
-        assert src != closed.CartesianClosed.BASE(Ty())
-        assert dest != closed.CartesianClosed.BASE(Ty())
+        assert src != closed.TOP
+        assert dest != closed.TOP
 
         location = src
         distances = self.diffusion_distances(params['arrow_distances'])
@@ -200,7 +200,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                                                          min_depth=min_depth,
                                                          params=params)
                 )
-            elif generator.cod == Ty() and depth >= min_depth:
+            elif generator.typed_dom == closed.TOP and depth >= min_depth:
                 result = generator
             else:
                 predecessor = self.forward(generator.typed_cod, depth + 1,
