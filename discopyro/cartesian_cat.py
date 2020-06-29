@@ -46,10 +46,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             if isinstance(elem.function, nn.Module):
                 k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
                 self.add_module('global_element_%d' % k, elem.function)
-            self._graph.nodes[elem.typed_cod]['global_elements'] = tuple(
-                list(self._graph.nodes[elem.typed_cod]['global_elements']) +\
-                [elem]
-            )
+            self._graph.nodes[elem.typed_cod]['global_elements'].append(elem)
 
         max_elements = max([len(self._graph.nodes[obj]['global_elements'])
                             for obj in self.obs])
