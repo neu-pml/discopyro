@@ -202,7 +202,8 @@ class CartesianCategory(pyro.nn.PyroModule):
             result = generator
         else:
             predecessor = self.forward(generator.typed_cod, depth + 1,
-                                       min_depth, infer, params)
+                                       min_depth, infer, confidence=confidence,
+                                       params=params)
             result = predecessor >> generator
 
         return result
