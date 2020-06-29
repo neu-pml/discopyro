@@ -82,8 +82,8 @@ class CartesianCategory(pyro.nn.PyroModule):
     def _object_elements(self, obj, global_element_weights=None):
         if global_element_weights is None:
             global_element_weights = self.global_element_weights
-        index = self._graph[obj]['object_index']
-        elements = self._graph[obj]['global_elements']
+        index = self._graph.nodes[obj]['object_index']
+        elements = self._graph.nodes[obj]['global_elements']
         weights = global_element_weights[index, :len(elements)]
         return elements, weights
 
@@ -109,13 +109,13 @@ class CartesianCategory(pyro.nn.PyroModule):
         for arrow in self.ars:
             dom, cod = arrow.typed_dom, arrow.typed_cod
 
-            row_indices.append(self._graph[dom]['index'])
-            column_indices.append(self._graph[arrow]['index'])
-            k = self._graph[arrow]['arrow_index']
+            row_indices.append(self._graph.nodes[dom]['index'])
+            column_indices.append(self._graph.nodes[arrow]['index'])
+            k = self._graph.nodes[arrow]['arrow_index']
             distances.append(-arrow_distances[k])
 
-            row_indices.append(self._graph[arrow]['index'])
-            column_indices.append(self._graph[cod]['index'])
+            row_indices.append(self._graph.nodes[arrow]['index'])
+            column_indices.append(self._graph.nodes[cod]['index'])
             distances.append(-arrow_distances.new_ones(1))
 
         transitions = transitions.index_put((torch.LongTensor(row_indices),
@@ -147,8 +147,9 @@ class CartesianCategory(pyro.nn.PyroModule):
                 generators, _ = self._object_generators(
                     location, True, params['arrow_distances']
                 )
-                gen_indices = [(self._graph[g]['index'],
-                                self._graph[dest]['index']) for g in generators]
+                gen_indices = [(self._graph.nodes[g]['index'],
+                                self._graph.nodes[dest]['index'])
+                               for g in generators]
                 distances_to_dest = distances[gen_indices]
                 generators_categorical = dist.Categorical(
                     probs=F.softmin(confidence * distances_to_dest, dim=0)
