@@ -175,8 +175,9 @@ class CartesianCategory(pyro.nn.PyroModule):
             generators, distances = self._object_generators(
                 obj, False, params['arrow_distances']
             )
-            generators.append(None)
-            distances = torch.cat((distances, distances.new_ones(1)), dim=0)
+            if obj.is_compound():
+                generators.append(None)
+                distances = torch.cat((distances, distances.new_ones(1)), dim=0)
             if depth >= min_depth:
                 elements, weights = self._object_elements(
                     obj, params['global_element_weights']
