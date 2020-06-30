@@ -27,12 +27,15 @@ class Closed(Generic[T], Ob):
             result = '(%s)' % result
         return result
 
-class CartesianClosed(Closed[Ty]):
     def __len__(self):
         return self.match(
-            base=lambda ty: len(ty),
-            var=lambda v: v,
+            base=len,
+            var=lambda v: 1,
+            arrow=lambda l, r: 1,
         )
+
+class CartesianClosed(Closed[Ty]):
+    pass
 
 TOP = CartesianClosed.BASE(Ty())
 
