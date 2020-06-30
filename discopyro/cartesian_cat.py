@@ -203,7 +203,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             elif generator.typed_dom == closed.TOP and depth >= min_depth:
                 result = generator
             else:
-                predecessor = self.forward(generator.typed_cod, depth + 1,
+                predecessor = self.forward(generator.typed_dom, depth + 1,
                                            min_depth, infer,
                                            confidence=confidence, params=params)
                 result = predecessor >> generator
