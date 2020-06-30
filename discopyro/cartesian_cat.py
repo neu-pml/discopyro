@@ -44,8 +44,9 @@ class CartesianCategory(pyro.nn.PyroModule):
             assert elem.typed_dom == closed.TOP
 
             if isinstance(elem.function, nn.Module):
+                i = self._graph.nodes[elem.typed_cod]['object_index']
                 k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
-                self.add_module('global_element_%d' % k, elem.function)
+                self.add_module('global_element_%d_%d' % (i, k), elem.function)
             self._graph.nodes[elem.typed_cod]['global_elements'].append(elem)
 
         max_elements = max([len(self._graph.nodes[obj]['global_elements'])
