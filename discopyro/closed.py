@@ -27,12 +27,17 @@ class Closed(Generic[T], Ob):
             result = '(%s)' % result
         return result
 
-class CartesianClosed(Closed[Ty]):
     def __len__(self):
         return self.match(
-            base=lambda ty: len(ty),
-            var=lambda v: v,
+            base=len,
+            var=lambda v: 1,
+            arrow=lambda l, r: 1,
         )
+
+class CartesianClosed(Closed[Ty]):
+    pass
+
+TOP = CartesianClosed.BASE(Ty())
 
 def unique_identifier():
     return uuid.uuid4().hex[:7]
@@ -116,18 +121,16 @@ def fold_arrow(ts):
 
 def unfold_arrow(arrow):
     return arrow.match(
-        base=lambda ob: [ob],
-        var=lambda v: [Closed.VAR(v)],
+        base=lambda ob: [CartesianClosed.BASE(ob)],
+        var=lambda v: [CartesianClosed.VAR(v)],
         arrow=lambda l, r: [l] + unfold_arrow(r)
     )
 
 class TypedFunction(Function):
     def __init__(self, dom, cod, function):
         # Deconstruct the type here into dom, cod, and self.forward
-        dom = closed.unfold_arrow(dom)
-        cod = closed.unfold_arrow(cod)
+        self._type = fold_arrow([dom, cod])
         super().__init__(len(dom), len(cod), function)
-        self._type = closed.fold_arrow(dom + cod)
 
     @property
     def type(self):
