@@ -35,9 +35,15 @@ class Closed(Generic[T], Ob):
         )
 
 class CartesianClosed(Closed[Ty]):
-    pass
+    def is_compound(self):
+        is_arrow = self._key == Closed._Key.ARROW
+        is_product = self._key == Closed._Key.BASE and len(self.base()) > 1
+        return is_arrow or is_product
 
 TOP = CartesianClosed.BASE(Ty())
+
+def wrap_base_ob(ob):
+    return CartesianClosed.BASE(Ty(ob))
 
 def unique_identifier():
     return uuid.uuid4().hex[:7]

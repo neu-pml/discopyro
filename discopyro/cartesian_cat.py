@@ -129,8 +129,9 @@ class CartesianCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def product_arrow(self, ty, depth=0, min_depth=0, infer={},
                       confidence=None, params=NONE_DEFAULT):
-        entries = [self.forward(obj, depth + 1, min_depth, infer, confidence,
-                                params) for obj in ty.objects]
+        entries = [self.forward(closed.wrap_base_ob(obj), depth + 1, min_depth,
+                                infer, confidence, params)
+                   for obj in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
@@ -174,8 +175,9 @@ class CartesianCategory(pyro.nn.PyroModule):
             generators, distances = self._object_generators(
                 obj, False, params['arrow_distances']
             )
-            generators.append(None)
-            distances = torch.cat((distances, distances.new_ones(1)), dim=0)
+            if obj.is_compound():
+                generators.append(None)
+                distances = torch.cat((distances, distances.new_ones(1)), dim=0)
             if depth >= min_depth:
                 elements, weights = self._object_elements(
                     obj, params['global_element_weights']
