@@ -42,6 +42,9 @@ class CartesianClosed(Closed[Ty]):
 
 TOP = CartesianClosed.BASE(Ty())
 
+def wrap_base_ob(ob):
+    return CartesianClosed.BASE(Ty(ob))
+
 def unique_identifier():
     return uuid.uuid4().hex[:7]
 
