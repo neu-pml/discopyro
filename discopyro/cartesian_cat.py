@@ -34,6 +34,10 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             if isinstance(gen.function, nn.Module):
                 self.add_module('generator_%d' % i, gen.function)
+            if isinstance(gen, closed.TypedDaggerFunction):
+                dagger = gen.dagger()
+                if isinstance(dagger.function, nn.Module):
+                    self.add_module('generator_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.obs):
             self._graph.nodes[obj]['object_index'] = i
@@ -42,6 +46,8 @@ class CartesianCategory(pyro.nn.PyroModule):
         for elem in global_elements:
             assert isinstance(elem, closed.TypedFunction)
             assert elem.typed_dom == closed.TOP
+            elem = closed.TypedDaggerFunction(elem.typed_dom, elem.typed_cod,
+                                              elem.function, lambda *args: None)
 
             if isinstance(elem.function, nn.Module):
                 i = self._graph.nodes[elem.typed_cod]['object_index']
