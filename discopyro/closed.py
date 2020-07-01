@@ -1,6 +1,6 @@
 from adt import adt, Case
 from discopy import messages, Ob, Ty
-from discopy.cartesian import Function, tuplify
+from discopy.cartesian import Function, tuplify, untuplify
 from discopy.cat import AxiomError
 import functools
 from typing import Generic, TypeVar
@@ -173,3 +173,62 @@ class TypedFunction(Function):
             return TypedFunction(substitute(dom, subst), substitute(cod, subst),
                                  lambda *vals: other(*tuplify(self(*vals))))
         return super().then(other)
+
+class TypedDaggerFunction(TypedFunction):
+    def __init__(self, dom, cod, function, dagger):
+        assert dom != TOP
+        assert cod != TOP
+        super().__init__(dom, cod, function)
+        self._dagger = dagger
+
+    def __repr__(self):
+        dom, cod = self.type.arrow()
+        template = "TypedDaggerFunction(dom={}, cod={}, function={}, dagger={})"
+        return template.format(
+            dom, cod, repr(self.function), repr(self._dagger)
+        )
+
+    def __getitem__(self, key):
+        if isinstance(key, slice) and key.step == -1:
+            return self.dagger()
+        return super().__getitem__(key)
+
+    def dagger(self):
+        return TypedDaggerFunction(self.typed_cod, self.typed_dom, self._dagger,
+                                   self.function)
+
+    def then(self, other):
+        if not isinstance(other, TypedDaggerFunction):
+            raise TypeError(messages.type_err(TypedDaggerFunction, other))
+        tx = self.type
+        dom, midx = tx.arrow()
+        ty = other.type
+        midy, cod = ty.arrow()
+        subst = unifier(midx, midy)
+        if subst is None:
+            raise AxiomError(messages.does_not_compose(self, other))
+        def forward(*vals):
+            return other(*tuplify(self(*vals)))
+        def backward(*vals):
+            return self[::-1](*tuplify(other[::-1](*vals)))
+        return TypedDaggerFunction(substitute(dom, subst),
+                                   substitute(cod, subst),
+                                   forward, backward)
+
+    def tensor(self, other):
+        if not isinstance(other, TypedDaggerFunction):
+            raise TypeError(messages.type_err(TypedDaggerFunction, other))
+        dom = self.typed_dom @ other.typed_dom
+        cod = self.typed_cod @ other.typed_cod
+
+        def forward_product(*vals):
+            vals0 = tuplify(self(*vals[:len(self.typed_dom)]))
+            vals1 = tuplify(other(*vals[len(self.typed_dom):]))
+            return untuplify(*(vals0 + vals1))
+
+        def backward_product(*vals):
+            vals0 = tuplify(self[::-1](*vals[:len(self.typed_cod)]))
+            vals1 = tuplify(other[::-1](*vals[len(self.typed_cod):]))
+            return untuplify(*(vals0 + vals1))
+
+        return TypedDaggerFunction(dom, cod, forward_product, backward_product)
