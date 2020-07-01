@@ -46,6 +46,8 @@ class CartesianCategory(pyro.nn.PyroModule):
         for elem in global_elements:
             assert isinstance(elem, closed.TypedFunction)
             assert elem.typed_dom == closed.TOP
+            elem = closed.TypedDaggerFunction(elem.typed_dom, elem.typed_cod,
+                                              elem.function, lambda *args: None)
 
             if isinstance(elem.function, nn.Module):
                 i = self._graph.nodes[elem.typed_cod]['object_index']
