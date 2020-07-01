@@ -176,8 +176,6 @@ class TypedFunction(Function):
 
 class TypedDaggerFunction(TypedFunction):
     def __init__(self, dom, cod, function, dagger):
-        assert dom != TOP
-        assert cod != TOP
         super().__init__(dom, cod, function)
         self._dagger = dagger
 
