@@ -1,6 +1,6 @@
 from adt import adt, Case
 from discopy import messages, Ob, Ty
-from discopy.cartesian import Function, tuplify, untuplify
+from discopy.cartesian import Box, Function, tuplify, untuplify
 from discopy.cat import AxiomError
 import functools
 from typing import Generic, TypeVar
@@ -176,6 +176,49 @@ class TypedFunction(Function):
             return TypedFunction(substitute(dom, subst), substitute(cod, subst),
                                  lambda *vals: other(*tuplify(self(*vals))))
         return super().then(other)
+
+class TypedBox(Box):
+    def __init__(self, name, dom, cod, function=None):
+        self._type = fold_arrow([dom, cod])
+        super().__init__(name, len(dom), len(cod), function)
+
+    @property
+    def type(self):
+        """
+        Type signature for an explicitly typed arrow between objects
+
+        :return: A CartesianClosed for the arrow's type
+        """
+        return self._type
+
+    @property
+    def typed_dom(self):
+        return self.type.arrow()[0]
+
+    @property
+    def typed_cod(self):
+        return self.type.arrow()[1]
+
+    def __repr__(self):
+        dom, cod = self.type.arrow()
+        function_rep = repr(self.function) if self.function else ''
+        return "TypedBox(name={}, dom={}, cod={}, function={})".format(
+            repr(self.name), dom, cod, function_rep
+        )
+
+    def __eq__(self, other):
+        if isinstance(other, TypedBox):
+            basics = all(self.__getattribute__(x) == other.__getattribute__(x)
+                         for x in ['name', 'dom', 'cod', 'function'])
+            subst = unifier(self.typed_dom, other.typed_dom)
+            subst = unifier(self.typed_cod, other.typed_cod, subst)
+            return basics and subst is not None
+        if isinstance(other, Arrow):
+            return len(other) == 1 and other[0] == self
+        return False
+
+    def __hash__(self):
+        return hash(repr(self))
 
 class TypedDaggerFunction(TypedFunction):
     def __init__(self, dom, cod, function, dagger):
