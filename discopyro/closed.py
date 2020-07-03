@@ -220,6 +220,46 @@ class TypedBox(Box):
     def __hash__(self):
         return hash(repr(self))
 
+class TypedDaggerBox(TypedBox):
+    def __init__(self, name, dom, cod, function=None, dagger_function=None,
+                 is_dagger=False):
+        self._dagger_function = dagger_function
+        self._dagger = is_dagger
+        super().__init__(name, dom, cod, function)
+
+    @property
+    def is_dagger(self):
+        return self._dagger
+
+    def dagger(self):
+        return TypedDaggerBox(self.name, self.typed_cod, self.typed_dom,
+                              self._dagger_function, self._function,
+                              not self._dagger)
+
+    def __repr__(self):
+        if self.is_dagger:
+            return repr(self.dagger()) + ".dagger()"
+        dom, cod = self.type.arrow()
+        function_rep = repr(self.function) if self.function else ''
+        return "TypedDaggerBox(name={}, dom={}, cod={}, function={})".format(
+            repr(self.name), dom, cod, function_rep
+        )
+
+    def __eq__(self, other):
+        if isinstance(other, TypedBox):
+            basics = all(self.__getattribute__(x) == other.__getattribute__(x)
+                         for x in ['name', 'dom', 'cod', 'function',
+                                   '_dagger_function', '_dagger'])
+            subst = unifier(self.typed_dom, other.typed_dom)
+            subst = unifier(self.typed_cod, other.typed_cod, subst)
+            return basics and subst is not None
+        if isinstance(other, Arrow):
+            return len(other) == 1 and other[0] == self
+        return False
+
+    def __hash__(self):
+        return hash(repr(self))
+
 class TypedDaggerFunction(TypedFunction):
     def __init__(self, dom, cod, function, dagger):
         super().__init__(dom, cod, function)
