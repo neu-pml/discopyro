@@ -34,6 +34,9 @@ class Closed(Generic[T], Ob):
             arrow=lambda l, r: 1,
         )
 
+    def __str__(self):
+        return self._pretty()
+
 class CartesianClosed(Closed[Ty]):
     def is_compound(self):
         is_arrow = self._key == Closed._Key.ARROW
