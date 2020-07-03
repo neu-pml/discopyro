@@ -22,7 +22,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         super().__init__()
         self._graph = nx.DiGraph()
         for i, gen in enumerate(generators):
-            assert isinstance(gen, closed.TypedFunction)
+            assert isinstance(gen, closed.TypedBox)
 
             if gen.typed_dom not in self._graph:
                 self._graph.add_node(gen.typed_dom, index=len(self._graph))
@@ -34,7 +34,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             if isinstance(gen.function, nn.Module):
                 self.add_module('generator_%d' % i, gen.function)
-            if isinstance(gen, closed.TypedDaggerFunction):
+            if isinstance(gen, closed.TypedDaggerBox):
                 dagger = gen.dagger()
                 if isinstance(dagger.function, nn.Module):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
@@ -44,10 +44,11 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.nodes[obj]['global_elements'] = []
 
         for elem in global_elements:
-            assert isinstance(elem, closed.TypedFunction)
+            assert isinstance(elem, closed.TypedBox)
             assert elem.typed_dom == closed.TOP
-            elem = closed.TypedDaggerFunction(elem.typed_dom, elem.typed_cod,
-                                              elem.function, lambda *args: None)
+            elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
+                                         elem.typed_cod, elem.function,
+                                         lambda *args: None)
 
             if isinstance(elem.function, nn.Module):
                 i = self._graph.nodes[elem.typed_cod]['object_index']
@@ -102,7 +103,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     @property
     def ars(self):
         return [node for node in self._graph
-                if isinstance(node, closed.TypedFunction)]
+                if isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
     def diffusion_distances(self, arrow_distances=None):
