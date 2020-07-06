@@ -135,48 +135,6 @@ def unfold_arrow(arrow):
         arrow=lambda l, r: [l] + unfold_arrow(r)
     )
 
-class TypedFunction(Function):
-    def __init__(self, dom, cod, function):
-        # Deconstruct the type here into dom, cod, and self.forward
-        self._type = fold_arrow([dom, cod])
-        super().__init__(len(dom), len(cod), function)
-
-    @property
-    def type(self):
-        """
-        Type signature for an explicitly typed arrow between objects
-
-        :return: A CartesianClosed for the arrow's type
-        """
-        return self._type
-
-    @property
-    def typed_dom(self):
-        return self.type.arrow()[0]
-
-    @property
-    def typed_cod(self):
-        return self.type.arrow()[1]
-
-    def __repr__(self):
-        dom, cod = self.type.arrow()
-        return "TypedFunction(dom={}, cod={}, function={})".format(
-            dom, cod, repr(self.function)
-        )
-
-    def then(self, other):
-        if isinstance(other, TypedFunction):
-            tx = self.type
-            dom, midx = tx.arrow()
-            ty = other.type
-            midy, cod = ty.arrow()
-            subst = unifier(midx, midy)
-            if subst is None:
-                raise AxiomError(messages.does_not_compose(self, other))
-            return TypedFunction(substitute(dom, subst), substitute(cod, subst),
-                                 lambda *vals: other(*tuplify(self(*vals))))
-        return super().then(other)
-
 class TypedBox(Box):
     def __init__(self, name, dom, cod, function=None):
         self._type = fold_arrow([dom, cod])
