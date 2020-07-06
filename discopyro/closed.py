@@ -1,6 +1,6 @@
 from adt import adt, Case
 from discopy import messages, Ob, Ty
-from discopy.cartesian import Box, Function, tuplify, untuplify
+from discopy.cartesian import Box
 from discopy.cat import AxiomError
 import functools
 from typing import Generic, TypeVar
@@ -135,48 +135,6 @@ def unfold_arrow(arrow):
         arrow=lambda l, r: [l] + unfold_arrow(r)
     )
 
-class TypedFunction(Function):
-    def __init__(self, dom, cod, function):
-        # Deconstruct the type here into dom, cod, and self.forward
-        self._type = fold_arrow([dom, cod])
-        super().__init__(len(dom), len(cod), function)
-
-    @property
-    def type(self):
-        """
-        Type signature for an explicitly typed arrow between objects
-
-        :return: A CartesianClosed for the arrow's type
-        """
-        return self._type
-
-    @property
-    def typed_dom(self):
-        return self.type.arrow()[0]
-
-    @property
-    def typed_cod(self):
-        return self.type.arrow()[1]
-
-    def __repr__(self):
-        dom, cod = self.type.arrow()
-        return "TypedFunction(dom={}, cod={}, function={})".format(
-            dom, cod, repr(self.function)
-        )
-
-    def then(self, other):
-        if isinstance(other, TypedFunction):
-            tx = self.type
-            dom, midx = tx.arrow()
-            ty = other.type
-            midy, cod = ty.arrow()
-            subst = unifier(midx, midy)
-            if subst is None:
-                raise AxiomError(messages.does_not_compose(self, other))
-            return TypedFunction(substitute(dom, subst), substitute(cod, subst),
-                                 lambda *vals: other(*tuplify(self(*vals))))
-        return super().then(other)
-
 class TypedBox(Box):
     def __init__(self, name, dom, cod, function=None):
         self._type = fold_arrow([dom, cod])
@@ -259,60 +217,3 @@ class TypedDaggerBox(TypedBox):
 
     def __hash__(self):
         return hash(repr(self))
-
-class TypedDaggerFunction(TypedFunction):
-    def __init__(self, dom, cod, function, dagger):
-        super().__init__(dom, cod, function)
-        self._dagger = dagger
-
-    def __repr__(self):
-        dom, cod = self.type.arrow()
-        template = "TypedDaggerFunction(dom={}, cod={}, function={}, dagger={})"
-        return template.format(
-            dom, cod, repr(self.function), repr(self._dagger)
-        )
-
-    def __getitem__(self, key):
-        if isinstance(key, slice) and key.step == -1:
-            return self.dagger()
-        return super().__getitem__(key)
-
-    def dagger(self):
-        return TypedDaggerFunction(self.typed_cod, self.typed_dom, self._dagger,
-                                   self.function)
-
-    def then(self, other):
-        if not isinstance(other, TypedDaggerFunction):
-            raise TypeError(messages.type_err(TypedDaggerFunction, other))
-        tx = self.type
-        dom, midx = tx.arrow()
-        ty = other.type
-        midy, cod = ty.arrow()
-        subst = unifier(midx, midy)
-        if subst is None:
-            raise AxiomError(messages.does_not_compose(self, other))
-        def forward(*vals):
-            return other(*tuplify(self(*vals)))
-        def backward(*vals):
-            return self[::-1](*tuplify(other[::-1](*vals)))
-        return TypedDaggerFunction(substitute(dom, subst),
-                                   substitute(cod, subst),
-                                   forward, backward)
-
-    def tensor(self, other):
-        if not isinstance(other, TypedDaggerFunction):
-            raise TypeError(messages.type_err(TypedDaggerFunction, other))
-        dom = self.typed_dom @ other.typed_dom
-        cod = self.typed_cod @ other.typed_cod
-
-        def forward_product(*vals):
-            vals0 = tuplify(self(*vals[:len(self.typed_dom)]))
-            vals1 = tuplify(other(*vals[len(self.typed_dom):]))
-            return untuplify(*(vals0 + vals1))
-
-        def backward_product(*vals):
-            vals0 = tuplify(self[::-1](*vals[:len(self.typed_cod)]))
-            vals1 = tuplify(other[::-1](*vals[len(self.typed_cod):]))
-            return untuplify(*(vals0 + vals1))
-
-        return TypedDaggerFunction(dom, cod, forward_product, backward_product)
