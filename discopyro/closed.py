@@ -1,6 +1,6 @@
 from adt import adt, Case
 from discopy import messages, Ob, Ty
-from discopy.cartesian import Box, Function, tuplify, untuplify
+from discopy.cartesian import Box
 from discopy.cat import AxiomError
 import functools
 from typing import Generic, TypeVar
