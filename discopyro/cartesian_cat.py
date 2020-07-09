@@ -83,14 +83,6 @@ class CartesianCategory(pyro.nn.PyroModule):
             arrow_indices.append(self._graph.nodes[gen]['arrow_index'])
         return generators, arrow_distances[arrow_indices]
 
-    def _object_elements(self, obj, global_element_weights=None):
-        if global_element_weights is None:
-            global_element_weights = self.global_element_weights
-        index = self._graph.nodes[obj]['object_index']
-        elements = self._graph.nodes[obj]['global_elements']
-        weights = global_element_weights[index, :len(elements)]
-        return elements, weights
-
     @property
     def obs(self):
         return [node for node in self._graph
