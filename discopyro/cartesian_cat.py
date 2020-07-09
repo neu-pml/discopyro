@@ -89,6 +89,12 @@ class CartesianCategory(pyro.nn.PyroModule):
                 if isinstance(node, closed.CartesianClosed)]
 
     @property
+    def compound_obs(self):
+        for obj in self.obs:
+            if obj.is_compound():
+                yield obj
+
+    @property
     def ars(self):
         return [node for node in self._graph
                 if isinstance(node, closed.TypedBox)]
