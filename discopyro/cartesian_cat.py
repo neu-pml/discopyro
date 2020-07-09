@@ -144,7 +144,6 @@ class CartesianCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def path_between(self, src, dest, confidence, min_depth=0, infer={},
                      params=NONE_DEFAULT):
-        assert src != closed.TOP
         assert dest != closed.TOP
 
         location = src
@@ -152,20 +151,21 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         path = []
         with pyro.markov():
-            while location != dest and len(path) < min_depth:
+            while location != dest or len(path) < min_depth:
                 generators, _ = self._object_generators(
                     location, True, params['arrow_distances']
                 )
-                gen_indices = [(self._graph.nodes[g]['index'],
-                                self._graph.nodes[dest]['index'])
-                               for g in generators]
-                distances_to_dest = distances[gen_indices]
+                distances_to_dest = []
+                gens = [self._graph.nodes[g]['index'] for g in generators]
+                dest_index = self._graph.nodes[dest]['index']
+                distances_to_dest = distances[gens][:, dest_index]
                 generators_categorical = dist.Categorical(
                     probs=F.softmin(confidence * distances_to_dest, dim=0)
                 ).to_event(0)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical, infer=infer)
                 path.append(generators[g_idx.item()])
+                location = generator.typed_cod
 
         return functools.reduce(lambda f, g: f >> g, path)
 
