@@ -21,6 +21,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
+        self._graph.add_node(closed.TOP, index=0, object_index=0)
         for i, gen in enumerate(generators):
             assert isinstance(gen, closed.TypedBox)
 
@@ -40,28 +41,23 @@ class CartesianCategory(pyro.nn.PyroModule):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.obs):
-            self._graph.nodes[obj]['object_index'] = i
-            self._graph.nodes[obj]['global_elements'] = []
+            self._graph.nodes[obj]['object_index'] = i + 1
 
-        for elem in global_elements:
+        for i, elem in enumerate(global_elements):
             assert isinstance(elem, closed.TypedBox)
             assert elem.typed_dom == closed.TOP
             elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
                                          elem.typed_cod, elem.function,
                                          lambda *args: None)
 
-            if isinstance(elem.function, nn.Module):
-                i = self._graph.nodes[elem.typed_cod]['object_index']
-                k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
-                self.add_module('global_element_%d_%d' % (i, k), elem.function)
-            self._graph.nodes[elem.typed_cod]['global_elements'].append(elem)
+            self._graph.add_node(elem, index=len(self._graph),
+                                 arrow_index=len(generators) + i)
+            self._graph.add_edge(closed.TOP, elem)
+            self._graph.add_edge(elem, elem.typed_cod)
 
-        max_elements = max([len(self._graph.nodes[obj]['global_elements'])
-                            for obj in self.obs])
-        self.global_element_weights = pnn.PyroParam(
-            torch.ones(len(self.obs), max_elements),
-            constraint=constraints.positive
-        )
+            if isinstance(elem.function, nn.Module):
+                self.add_module('global_element_%d' % i, elem.function)
+
         self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars)),
                                              constraint=constraints.positive)
         self.confidence_alpha = pnn.PyroParam(torch.ones(1),
