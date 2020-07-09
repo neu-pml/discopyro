@@ -58,6 +58,23 @@ class CartesianCategory(pyro.nn.PyroModule):
             if isinstance(elem.function, nn.Module):
                 self.add_module('global_element_%d' % i, elem.function)
 
+        for i, obj in enumerate(self.compound_obs):
+            if obj._key == closed.CartesianClosed._Key.ARROW:
+                src, dest = obj.arrow()
+                def macro(confidence, min_depth, infer, params, l=src, r=dest):
+                    return self.path_between(l, r, confidence, min_depth, infer,
+                                             params)
+            elif obj._key == closed.CartesianClosed._Key.BASE:
+                def macro(confidence, min_depth, infer, params, obj=obj):
+                    return self.product_arrow(obj, min_depth, infer, confidence,
+                                              params)
+
+            arrow_index = len(generators) + len(global_elements) + i
+            self._graph.add_node(macro, index=len(self._graph),
+                                 arrow_index=arrow_index)
+            self._graph.add_edge(closed.TOP, macro)
+            self._graph.add_edge(macro, obj)
+
         self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars)),
                                              constraint=constraints.positive)
         self.confidence_alpha = pnn.PyroParam(torch.ones(1),
@@ -162,7 +179,12 @@ class CartesianCategory(pyro.nn.PyroModule):
                 ).to_event(0)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical, infer=infer)
-                path.append(generators[g_idx.item()])
+                if isinstance(generators[g_idx.item()], closed.TypedBox):
+                    generator = generators[g_idx.item()]
+                else:
+                    macro = generators[g_idx.item()]
+                    generator = macro(confidence, min_depth, infer, params)
+                path.append(generator)
                 location = generator.typed_cod
 
         return functools.reduce(lambda f, g: f >> g, path)
