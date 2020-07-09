@@ -134,10 +134,10 @@ class CartesianCategory(pyro.nn.PyroModule):
         return -torch.log(diffusions)
 
     @pnn.pyro_method
-    def product_arrow(self, ty, depth=0, min_depth=0, infer={},
+    def product_arrow(self, ty, min_depth=0, infer={},
                       confidence=None, params=NONE_DEFAULT):
-        entries = [self.forward(closed.wrap_base_ob(obj), depth + 1, min_depth,
-                                infer, confidence, params)
+        entries = [self.forward(closed.wrap_base_ob(obj), min_depth, infer,
+                                confidence, params)
                    for obj in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
