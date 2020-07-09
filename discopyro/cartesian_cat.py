@@ -109,7 +109,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     def diffusion_distances(self, arrow_distances=None):
         if arrow_distances is None:
             arrow_distances = self.arrow_distances
-        transitions = arrow_distances.new_zeros([len(self._graph)] * 2)
+        transitions = torch.eye(len(self._graph), device=arrow_distances.device)
 
         row_indices = []
         column_indices = []
@@ -124,13 +124,17 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             row_indices.append(self._graph.nodes[arrow]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
-            distances.append(-arrow_distances.new_ones(1))
+            distances.append(arrow_distances.new_zeros(()))
 
         transitions = transitions.index_put((torch.LongTensor(row_indices),
                                              torch.LongTensor(column_indices)),
                                             torch.stack(distances, dim=0).exp())
-        transitions = transitions / transitions.sum(dim=1, keepdim=True)
+        transitions = transitions / transitions.sum(dim=-1, keepdim=True)
         diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
+        diffusions_sum = diffusions.sum(dim=-1, keepdim=True)
+        diffusions = diffusions / diffusions_sum
+        diffusions = torch.where(diffusions == 0., torch.ones_like(diffusions),
+                                 diffusions)
         return -torch.log(diffusions)
 
     @pnn.pyro_method
