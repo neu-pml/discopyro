@@ -169,7 +169,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         return functools.reduce(lambda f, g: f >> g, path)
 
-    def forward(self, obj, depth=0, min_depth=0, infer={}, confidence=None,
+    def forward(self, obj, min_depth=0, infer={}, confidence=None,
                 params=NONE_DEFAULT):
         with name_count():
             if confidence is None:
@@ -179,46 +179,13 @@ class CartesianCategory(pyro.nn.PyroModule):
                                self.confidence_beta).to_event(0)
                 )
 
-            generators, distances = self._object_generators(
-                obj, False, params['arrow_distances']
-            )
-            if obj.is_compound():
-                generators.append(None)
-                distances = torch.cat((distances, distances.new_ones(1)), dim=0)
-            if depth >= min_depth:
-                elements, weights = self._object_elements(
-                    obj, params['global_element_weights']
-                )
-                generators = generators + elements
-                distances = torch.cat((distances + depth, -weights),
-                                      dim=0)
-
-            generators_cat = dist.Categorical(
-                probs=F.softmin(distances * confidence, dim=0)
-            )
-            g_idx = pyro.sample('generator_{-> %s}' % obj, generators_cat,
-                                infer=infer)
-            generator = generators[g_idx.item()]
-
-            if generator is None:
-                result = obj.match(
-                    base=lambda ty: self.product_arrow(ty, depth, min_depth,
-                                                       infer, confidence,
-                                                       params),
-                    var=lambda v: closed.UnificationException(None, None, v),
-                    arrow=lambda l, r: self.path_between(l, r, confidence,
-                                                         min_depth=min_depth,
-                                                         params=params)
-                )
-            elif generator.typed_dom == closed.TOP and depth >= min_depth:
-                result = generator
-            else:
-                predecessor = self.forward(generator.typed_dom, depth + 1,
-                                           min_depth, infer,
-                                           confidence=confidence, params=params)
-                result = predecessor >> generator
-
-            return result
+            entries = closed.unfold_arrow(obj)
+            if len(entries) == 1:
+                return self.path_between(closed.TOP, obj, confidence, min_depth,
+                                         infer, params)
+            src, dest = closed.fold_product(entries[:-1]), entries[-1]
+            return self.path_between(src, dest, confidence, min_depth, infer,
+                                     params)
 
     def resume_from_checkpoint(self, resume_path):
         """
