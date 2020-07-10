@@ -135,6 +135,14 @@ def unfold_arrow(arrow):
         arrow=lambda l, r: [l] + unfold_arrow(r)
     )
 
+def fold_product(ts):
+    if len(ts) == 1:
+        return ts[0]
+    return CartesianClosed.BASE(Ty(*ts))
+
+def unfold_product(ty):
+    return [wrap_base_ob(obj) for obj in ty.objects]
+
 class TypedBox(Box):
     def __init__(self, name, dom, cod, function=None):
         self._type = fold_arrow([dom, cod])

@@ -21,6 +21,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
+        self._graph.add_node(closed.TOP, index=0, object_index=0)
         for i, gen in enumerate(generators):
             assert isinstance(gen, closed.TypedBox)
 
@@ -40,28 +41,40 @@ class CartesianCategory(pyro.nn.PyroModule):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.obs):
-            self._graph.nodes[obj]['object_index'] = i
-            self._graph.nodes[obj]['global_elements'] = []
+            self._graph.nodes[obj]['object_index'] = i + 1
 
-        for elem in global_elements:
+        for i, elem in enumerate(global_elements):
             assert isinstance(elem, closed.TypedBox)
             assert elem.typed_dom == closed.TOP
             elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
                                          elem.typed_cod, elem.function,
                                          lambda *args: None)
 
-            if isinstance(elem.function, nn.Module):
-                i = self._graph.nodes[elem.typed_cod]['object_index']
-                k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
-                self.add_module('global_element_%d_%d' % (i, k), elem.function)
-            self._graph.nodes[elem.typed_cod]['global_elements'].append(elem)
+            self._graph.add_node(elem, index=len(self._graph),
+                                 arrow_index=len(generators) + i)
+            self._graph.add_edge(closed.TOP, elem)
+            self._graph.add_edge(elem, elem.typed_cod)
 
-        max_elements = max([len(self._graph.nodes[obj]['global_elements'])
-                            for obj in self.obs])
-        self.global_element_weights = pnn.PyroParam(
-            torch.ones(len(self.obs), max_elements),
-            constraint=constraints.positive
-        )
+            if isinstance(elem.function, nn.Module):
+                self.add_module('global_element_%d' % i, elem.function)
+
+        for i, obj in enumerate(self.compound_obs):
+            if obj._key == closed.CartesianClosed._Key.ARROW:
+                src, dest = obj.arrow()
+                def macro(confidence, min_depth, infer, params, l=src, r=dest):
+                    return self.path_between(l, r, confidence, min_depth, infer,
+                                             params)
+            elif obj._key == closed.CartesianClosed._Key.BASE:
+                def macro(confidence, min_depth, infer, params, obj=obj):
+                    return self.product_arrow(obj, min_depth, infer, confidence,
+                                              params)
+
+            arrow_index = len(generators) + len(global_elements) + i
+            self._graph.add_node(macro, index=len(self._graph),
+                                 arrow_index=arrow_index)
+            self._graph.add_edge(closed.TOP, macro)
+            self._graph.add_edge(macro, obj)
+
         self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars)),
                                              constraint=constraints.positive)
         self.confidence_alpha = pnn.PyroParam(torch.ones(1),
@@ -87,18 +100,16 @@ class CartesianCategory(pyro.nn.PyroModule):
             arrow_indices.append(self._graph.nodes[gen]['arrow_index'])
         return generators, arrow_distances[arrow_indices]
 
-    def _object_elements(self, obj, global_element_weights=None):
-        if global_element_weights is None:
-            global_element_weights = self.global_element_weights
-        index = self._graph.nodes[obj]['object_index']
-        elements = self._graph.nodes[obj]['global_elements']
-        weights = global_element_weights[index, :len(elements)]
-        return elements, weights
-
     @property
     def obs(self):
         return [node for node in self._graph
                 if isinstance(node, closed.CartesianClosed)]
+
+    @property
+    def compound_obs(self):
+        for obj in self.obs:
+            if obj.is_compound():
+                yield obj
 
     @property
     def ars(self):
@@ -109,7 +120,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     def diffusion_distances(self, arrow_distances=None):
         if arrow_distances is None:
             arrow_distances = self.arrow_distances
-        transitions = arrow_distances.new_zeros([len(self._graph)] * 2)
+        transitions = torch.eye(len(self._graph), device=arrow_distances.device)
 
         row_indices = []
         column_indices = []
@@ -124,27 +135,30 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             row_indices.append(self._graph.nodes[arrow]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
-            distances.append(-arrow_distances.new_ones(1))
+            distances.append(arrow_distances.new_zeros(()))
 
         transitions = transitions.index_put((torch.LongTensor(row_indices),
                                              torch.LongTensor(column_indices)),
                                             torch.stack(distances, dim=0).exp())
-        transitions = transitions / transitions.sum(dim=1, keepdim=True)
+        transitions = transitions / transitions.sum(dim=-1, keepdim=True)
         diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
+        diffusions_sum = diffusions.sum(dim=-1, keepdim=True)
+        diffusions = diffusions / diffusions_sum
+        diffusions = torch.where(diffusions == 0., torch.ones_like(diffusions),
+                                 diffusions)
         return -torch.log(diffusions)
 
     @pnn.pyro_method
-    def product_arrow(self, ty, depth=0, min_depth=0, infer={},
+    def product_arrow(self, ty, min_depth=0, infer={},
                       confidence=None, params=NONE_DEFAULT):
-        entries = [self.forward(closed.wrap_base_ob(obj), depth + 1, min_depth,
-                                infer, confidence, params)
+        entries = [self.forward(closed.wrap_base_ob(obj), min_depth, infer,
+                                confidence, params)
                    for obj in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
     def path_between(self, src, dest, confidence, min_depth=0, infer={},
                      params=NONE_DEFAULT):
-        assert src != closed.TOP
         assert dest != closed.TOP
 
         location = src
@@ -152,24 +166,32 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         path = []
         with pyro.markov():
-            while location != dest and len(path) < min_depth:
+            while location != dest or len(path) < min_depth:
                 generators, _ = self._object_generators(
                     location, True, params['arrow_distances']
                 )
-                gen_indices = [(self._graph.nodes[g]['index'],
-                                self._graph.nodes[dest]['index'])
-                               for g in generators]
-                distances_to_dest = distances[gen_indices]
+                if len(path) + 1 < min_depth:
+                    generators = [g for g in generators if g.typed_cod != dest]
+                distances_to_dest = []
+                gens = [self._graph.nodes[g]['index'] for g in generators]
+                dest_index = self._graph.nodes[dest]['index']
+                distances_to_dest = distances[gens][:, dest_index]
                 generators_categorical = dist.Categorical(
                     probs=F.softmin(confidence * distances_to_dest, dim=0)
                 ).to_event(0)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
-                                    generators_categorical, infer=infer)
-                path.append(generators[g_idx.item()])
+                                    generators_categorical, infer=infer) - 1
+                if isinstance(generators[g_idx.item()], closed.TypedBox):
+                    generator = generators[g_idx.item()]
+                else:
+                    macro = generators[g_idx.item()]
+                    generator = macro(confidence, min_depth, infer, params)
+                path.append(generator)
+                location = generator.typed_cod
 
         return functools.reduce(lambda f, g: f >> g, path)
 
-    def forward(self, obj, depth=0, min_depth=0, infer={}, confidence=None,
+    def forward(self, obj, min_depth=2, infer={}, confidence=None,
                 params=NONE_DEFAULT):
         with name_count():
             if confidence is None:
@@ -179,46 +201,13 @@ class CartesianCategory(pyro.nn.PyroModule):
                                self.confidence_beta).to_event(0)
                 )
 
-            generators, distances = self._object_generators(
-                obj, False, params['arrow_distances']
-            )
-            if obj.is_compound():
-                generators.append(None)
-                distances = torch.cat((distances, distances.new_ones(1)), dim=0)
-            if depth >= min_depth:
-                elements, weights = self._object_elements(
-                    obj, params['global_element_weights']
-                )
-                generators = generators + elements
-                distances = torch.cat((distances + depth, -weights),
-                                      dim=0)
-
-            generators_cat = dist.Categorical(
-                probs=F.softmin(distances * confidence, dim=0)
-            )
-            g_idx = pyro.sample('generator_{-> %s}' % obj, generators_cat,
-                                infer=infer)
-            generator = generators[g_idx.item()]
-
-            if generator is None:
-                result = obj.match(
-                    base=lambda ty: self.product_arrow(ty, depth, min_depth,
-                                                       infer, confidence,
-                                                       params),
-                    var=lambda v: closed.UnificationException(None, None, v),
-                    arrow=lambda l, r: self.path_between(l, r, confidence,
-                                                         min_depth=min_depth,
-                                                         params=params)
-                )
-            elif generator.typed_dom == closed.TOP and depth >= min_depth:
-                result = generator
-            else:
-                predecessor = self.forward(generator.typed_dom, depth + 1,
-                                           min_depth, infer,
-                                           confidence=confidence, params=params)
-                result = predecessor >> generator
-
-            return result
+            entries = closed.unfold_arrow(obj)
+            if len(entries) == 1:
+                return self.path_between(closed.TOP, obj, confidence, min_depth,
+                                         infer, params)
+            src, dest = closed.fold_product(entries[:-1]), entries[-1]
+            return self.path_between(src, dest, confidence, min_depth, infer,
+                                     params)
 
     def resume_from_checkpoint(self, resume_path):
         """
