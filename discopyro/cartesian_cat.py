@@ -170,6 +170,8 @@ class CartesianCategory(pyro.nn.PyroModule):
                 generators, _ = self._object_generators(
                     location, True, params['arrow_distances']
                 )
+                if len(path) + 1 < min_depth:
+                    generators = [g for g in generators if g.typed_cod != dest]
                 distances_to_dest = []
                 gens = [self._graph.nodes[g]['index'] for g in generators]
                 dest_index = self._graph.nodes[dest]['index']
@@ -178,7 +180,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                     probs=F.softmin(confidence * distances_to_dest, dim=0)
                 ).to_event(0)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
-                                    generators_categorical, infer=infer)
+                                    generators_categorical, infer=infer) - 1
                 if isinstance(generators[g_idx.item()], closed.TypedBox):
                     generator = generators[g_idx.item()]
                 else:
@@ -189,7 +191,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         return functools.reduce(lambda f, g: f >> g, path)
 
-    def forward(self, obj, min_depth=0, infer={}, confidence=None,
+    def forward(self, obj, min_depth=2, infer={}, confidence=None,
                 params=NONE_DEFAULT):
         with name_count():
             if confidence is None:
