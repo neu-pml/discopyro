@@ -166,7 +166,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         path = []
         with pyro.markov():
-            while location != dest or len(path) < min_depth:
+            while location != dest:
                 generators, _ = self._object_generators(
                     location, True, params['arrow_distances']
                 )
