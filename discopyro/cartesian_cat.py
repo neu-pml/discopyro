@@ -84,8 +84,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @property
     def param_shapes(self):
-        return (self.global_element_weights.shape, self.arrow_distances.shape,
-                self.confidence_alpha.shape * 2)
+        return (self.arrow_distances.shape, self.confidence_alpha.shape * 2)
 
     def _object_generators(self, obj, forward=True, arrow_distances=None):
         if arrow_distances is None:
