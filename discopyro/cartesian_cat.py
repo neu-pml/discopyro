@@ -61,13 +61,15 @@ class CartesianCategory(pyro.nn.PyroModule):
         for i, obj in enumerate(self.compound_obs):
             if obj._key == closed.CartesianClosed._Key.ARROW:
                 src, dest = obj.arrow()
-                def macro(confidence, min_depth, infer, params, l=src, r=dest):
+                def macro(confidence, min_depth, infer, arrow_distances, l=src,
+                          r=dest):
                     return self.path_between(l, r, confidence, min_depth, infer,
-                                             params)
+                                             arrow_distances)
             elif obj._key == closed.CartesianClosed._Key.BASE:
-                def macro(confidence, min_depth, infer, params, obj=obj):
+                def macro(confidence, min_depth, infer, arrow_distances,
+                          obj=obj):
                     return self.product_arrow(obj, min_depth, infer, confidence,
-                                              params)
+                                              arrow_distances)
 
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
@@ -149,28 +151,26 @@ class CartesianCategory(pyro.nn.PyroModule):
         return -torch.log(diffusions)
 
     @pnn.pyro_method
-    def product_arrow(self, ty, min_depth=0, infer={},
-                      confidence=None, params=NONE_DEFAULT):
+    def product_arrow(self, ty, min_depth=0, infer={}, confidence=None,
+                      arrow_distances=None):
         entries = [self.forward(closed.wrap_base_ob(obj), min_depth, infer,
-                                confidence, params)
+                                confidence, arrow_distances)
                    for obj in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
     def path_between(self, src, dest, confidence, min_depth=0, infer={},
-                     params=NONE_DEFAULT):
+                     arrow_distances=None):
         assert dest != closed.TOP
 
         location = src
-        distances = self.diffusion_distances(confidence,
-                                             params['arrow_distances'])
+        distances = self.diffusion_distances(confidence, arrow_distances)
 
         path = []
         with pyro.markov():
             while location != dest:
-                generators, _ = self._object_generators(
-                    location, True, params['arrow_distances']
-                )
+                generators, _ = self._object_generators(location, True,
+                                                        arrow_distances)
                 if len(path) + 1 < min_depth:
                     generators = [g for g in generators if g.typed_cod != dest]
                 distances_to_dest = []
@@ -186,14 +186,15 @@ class CartesianCategory(pyro.nn.PyroModule):
                     generator = generators[g_idx.item()]
                 else:
                     macro = generators[g_idx.item()]
-                    generator = macro(confidence, min_depth, infer, params)
+                    generator = macro(confidence, min_depth, infer,
+                                      arrow_distances)
                 path.append(generator)
                 location = generator.typed_cod
 
         return functools.reduce(lambda f, g: f >> g, path)
 
     def forward(self, obj, min_depth=2, infer={}, confidence=None,
-                params=NONE_DEFAULT):
+                arrow_distances=None):
         with name_count():
             if confidence is None:
                 confidence = pyro.sample(
@@ -205,10 +206,10 @@ class CartesianCategory(pyro.nn.PyroModule):
             entries = closed.unfold_arrow(obj)
             if len(entries) == 1:
                 return self.path_between(closed.TOP, obj, confidence, min_depth,
-                                         infer, params)
+                                         infer, arrow_distances)
             src, dest = closed.fold_product(entries[:-1]), entries[-1]
             return self.path_between(src, dest, confidence, min_depth, infer,
-                                     params)
+                                     arrow_distances)
 
     def resume_from_checkpoint(self, resume_path):
         """
