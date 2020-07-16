@@ -61,15 +61,11 @@ class CartesianCategory(pyro.nn.PyroModule):
         for i, obj in enumerate(self.compound_obs):
             if obj._key == closed.CartesianClosed._Key.ARROW:
                 src, dest = obj.arrow()
-                def macro(confidence, min_depth, infer, arrow_distances, l=src,
-                          r=dest):
-                    return self.path_between(l, r, confidence, min_depth, infer,
-                                             arrow_distances)
+                def macro(distances, min_depth, infer, l=src, r=dest):
+                    return self.path_between(l, r, distances, min_depth, infer)
             elif obj._key == closed.CartesianClosed._Key.BASE:
-                def macro(confidence, min_depth, infer, arrow_distances,
-                          obj=obj):
-                    return self.product_arrow(obj, min_depth, infer, confidence,
-                                              arrow_distances)
+                def macro(distances, min_depth, infer, obj=obj):
+                    return self.product_arrow(obj, distances, min_depth, infer)
 
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
