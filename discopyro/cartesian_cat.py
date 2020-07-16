@@ -179,7 +179,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                     probs=F.softmin(confidence * distances_to_dest, dim=0)
                 ).to_event(0)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
-                                    generators_categorical, infer=infer) - 1
+                                    generators_categorical, infer=infer)
                 if isinstance(generators[g_idx.item()], closed.TypedBox):
                     generator = generators[g_idx.item()]
                 else:
