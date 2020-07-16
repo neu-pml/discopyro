@@ -178,7 +178,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                 dest_index = self._graph.nodes[dest]['index']
                 distances_to_dest = distances[gens][:, dest_index]
                 generators_categorical = dist.Categorical(
-                    probs=F.softmin(confidence * distances_to_dest, dim=0)
+                    probs=F.softmin(distances_to_dest, dim=0)
                 ).to_event(0)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical, infer=infer)
