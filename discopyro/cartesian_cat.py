@@ -162,7 +162,8 @@ class CartesianCategory(pyro.nn.PyroModule):
         assert dest != closed.TOP
 
         location = src
-        distances = self.diffusion_distances(params['arrow_distances'])
+        distances = self.diffusion_distances(confidence,
+                                             params['arrow_distances'])
 
         path = []
         with pyro.markov():
