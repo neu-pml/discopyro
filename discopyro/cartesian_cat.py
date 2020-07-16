@@ -112,10 +112,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                 if isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def diffusion_distances(self, confidence, arrow_distances=None):
-        if arrow_distances is None:
-            arrow_distances = self.arrow_distances
-        arrow_distances = confidence * arrow_distances
+    def diffusion_distances(self, arrow_distances):
         transitions = torch.eye(len(self._graph), device=arrow_distances.device)
 
         row_indices = []
