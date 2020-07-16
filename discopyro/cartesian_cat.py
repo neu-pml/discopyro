@@ -179,23 +179,31 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         return functools.reduce(lambda f, g: f >> g, path)
 
-    def forward(self, obj, min_depth=2, infer={}, confidence=None,
-                arrow_distances=None):
+    def sample_morphism(self, obj, distances, min_depth=2, infer={}):
         with name_count():
-            if confidence is None:
-                confidence = pyro.sample(
-                    'distances_confidence',
-                    dist.Gamma(self.confidence_alpha,
-                               self.confidence_beta).to_event(0)
-                )
-
             entries = closed.unfold_arrow(obj)
             if len(entries) == 1:
-                return self.path_between(closed.TOP, obj, confidence, min_depth,
-                                         infer, arrow_distances)
+                return self.path_between(closed.TOP, obj, distances, min_depth,
+                                         infer)
             src, dest = closed.fold_product(entries[:-1]), entries[-1]
-            return self.path_between(src, dest, confidence, min_depth, infer,
-                                     arrow_distances)
+            return self.path_between(src, dest, distances, min_depth, infer)
+
+    def forward(self, obj, min_depth=2, infer={}, confidence=None,
+                arrow_distances=None):
+        if confidence is None:
+            confidence = pyro.sample(
+                'distances_confidence',
+                dist.Gamma(self.confidence_alpha,
+                           self.confidence_beta).to_event(0)
+            )
+        if arrow_distances is None:
+            arrow_distances = self.arrow_distances
+
+        arrow_distances = confidence * arrow_distances
+        distances = self.diffusion_distances(arrow_distances)
+
+        return self.sample_morphism(obj, distances, min_depth, infer)
+
 
     def resume_from_checkpoint(self, resume_path):
         """
