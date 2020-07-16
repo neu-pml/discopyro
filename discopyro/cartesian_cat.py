@@ -61,11 +61,11 @@ class CartesianCategory(pyro.nn.PyroModule):
         for i, obj in enumerate(self.compound_obs):
             if obj._key == closed.CartesianClosed._Key.ARROW:
                 src, dest = obj.arrow()
-                def macro(distances, min_depth, infer, l=src, r=dest):
-                    return self.path_between(l, r, distances, min_depth, infer)
+                def macro(probs, min_depth, infer, l=src, r=dest):
+                    return self.path_between(l, r, probs, min_depth, infer)
             elif obj._key == closed.CartesianClosed._Key.BASE:
-                def macro(distances, min_depth, infer, obj=obj):
-                    return self.product_arrow(obj, distances, min_depth, infer)
+                def macro(probs, min_depth, infer, obj=obj):
+                    return self.product_arrow(obj, probs, min_depth, infer)
 
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
@@ -112,7 +112,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                 if isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def diffusion_distances(self, arrow_distances):
+    def diffusion_probs(self, arrow_distances):
         transitions = torch.eye(len(self._graph), device=arrow_distances.device)
 
         row_indices = []
@@ -136,20 +136,17 @@ class CartesianCategory(pyro.nn.PyroModule):
         transitions = transitions / transitions.sum(dim=-1, keepdim=True)
         diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
         diffusions_sum = diffusions.sum(dim=-1, keepdim=True)
-        diffusions = diffusions / diffusions_sum
-        diffusions = torch.where(diffusions == 0., torch.ones_like(diffusions),
-                                 diffusions)
-        return -torch.log(diffusions)
+        return diffusions / diffusions_sum
 
     @pnn.pyro_method
-    def product_arrow(self, ty, distances, min_depth=0, infer={}):
-        entries = [self.sample_morphism(closed.wrap_base_ob(obj), distances,
+    def product_arrow(self, ty, probs, min_depth=0, infer={}):
+        entries = [self.sample_morphism(closed.wrap_base_ob(obj), probs,
                                         min_depth, infer)
                    for obj in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
-    def path_between(self, src, dest, distances, min_depth=0, infer={}):
+    def path_between(self, src, dest, probs, min_depth=0, infer={}):
         assert dest != closed.TOP
 
         location = src
@@ -159,33 +156,31 @@ class CartesianCategory(pyro.nn.PyroModule):
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
                     generators = [g for g in generators if g.typed_cod != dest]
-                distances_to_dest = []
                 gens = [self._graph.nodes[g]['index'] for g in generators]
                 dest_index = self._graph.nodes[dest]['index']
-                distances_to_dest = distances[gens][:, dest_index]
-                generators_categorical = dist.Categorical(
-                    probs=F.softmin(distances_to_dest, dim=0)
-                ).to_event(0)
+                dest_probs = probs[gens][:, dest_index]
+                generators_categorical = dist.Categorical(dest_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
-                                    generators_categorical, infer=infer)
+                                    generators_categorical.to_event(0),
+                                    infer=infer)
                 if isinstance(generators[g_idx.item()], closed.TypedBox):
                     generator = generators[g_idx.item()]
                 else:
                     macro = generators[g_idx.item()]
-                    generator = macro(distances, min_depth, infer)
+                    generator = macro(probs, min_depth, infer)
                 path.append(generator)
                 location = generator.typed_cod
 
         return functools.reduce(lambda f, g: f >> g, path)
 
-    def sample_morphism(self, obj, distances, min_depth=2, infer={}):
+    def sample_morphism(self, obj, probs, min_depth=2, infer={}):
         with name_count():
             entries = closed.unfold_arrow(obj)
             if len(entries) == 1:
-                return self.path_between(closed.TOP, obj, distances, min_depth,
+                return self.path_between(closed.TOP, obj, probs, min_depth,
                                          infer)
             src, dest = closed.fold_product(entries[:-1]), entries[-1]
-            return self.path_between(src, dest, distances, min_depth, infer)
+            return self.path_between(src, dest, probs, min_depth, infer)
 
     def forward(self, obj, min_depth=2, infer={}, confidence=None,
                 arrow_distances=None):
@@ -199,9 +194,9 @@ class CartesianCategory(pyro.nn.PyroModule):
             arrow_distances = self.arrow_distances
 
         arrow_distances = confidence * arrow_distances
-        distances = self.diffusion_distances(arrow_distances)
+        probs = self.diffusion_probs(arrow_distances)
 
-        return self.sample_morphism(obj, distances, min_depth, infer)
+        return self.sample_morphism(obj, probs, min_depth, infer)
 
 
     def resume_from_checkpoint(self, resume_path):
