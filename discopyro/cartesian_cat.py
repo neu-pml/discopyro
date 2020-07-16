@@ -138,6 +138,9 @@ class CartesianCategory(pyro.nn.PyroModule):
         diffusions_sum = diffusions.sum(dim=-1, keepdim=True)
         return diffusions / diffusions_sum
 
+    def diffusion_distances(self, arrow_distances):
+        return -torch.log(self.diffusion_probs(arrow_distances))
+
     @pnn.pyro_method
     def product_arrow(self, ty, probs, min_depth=0, infer={}):
         entries = [self.sample_morphism(closed.wrap_base_ob(obj), probs,
