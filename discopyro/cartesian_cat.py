@@ -88,11 +88,9 @@ class CartesianCategory(pyro.nn.PyroModule):
         edges = self._graph.out_edges if forward else self._graph.in_edges
         dir_index = 1 if forward else 0
         generators = []
-        arrow_indices = []
         for edge in edges(obj):
             gen = edge[dir_index]
             generators.append(gen)
-            arrow_indices.append(self._graph.nodes[gen]['arrow_index'])
         return generators
 
     @property
