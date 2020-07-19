@@ -110,7 +110,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                 if isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def diffusion_probs(self, arrow_distances):
+    def transition_matrix(self, arrow_distances):
         transitions = arrow_distances.new_zeros([len(self._graph)] * 2)
 
         row_indices = []
@@ -137,7 +137,11 @@ class CartesianCategory(pyro.nn.PyroModule):
                                              torch.LongTensor(diag_indices)),
                                             identity_ones)
 
-        transitions = transitions / transitions.sum(dim=-1, keepdim=True)
+        return transitions / transitions.sum(dim=-1, keepdim=True)
+
+    @pnn.pyro_method
+    def diffusion_probs(self, arrow_distances):
+        transitions = self.transition_matrix(arrow_distances)
         diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
         return diffusions
 
