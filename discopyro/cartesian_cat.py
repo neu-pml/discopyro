@@ -88,11 +88,9 @@ class CartesianCategory(pyro.nn.PyroModule):
         edges = self._graph.out_edges if forward else self._graph.in_edges
         dir_index = 1 if forward else 0
         generators = []
-        arrow_indices = []
         for edge in edges(obj):
             gen = edge[dir_index]
             generators.append(gen)
-            arrow_indices.append(self._graph.nodes[gen]['arrow_index'])
         return generators
 
     @property
@@ -112,8 +110,8 @@ class CartesianCategory(pyro.nn.PyroModule):
                 if isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def diffusion_probs(self, arrow_distances):
-        transitions = torch.eye(len(self._graph), device=arrow_distances.device)
+    def transition_matrix(self, arrow_distances):
+        transitions = arrow_distances.new_zeros([len(self._graph)] * 2)
 
         row_indices = []
         column_indices = []
@@ -129,11 +127,21 @@ class CartesianCategory(pyro.nn.PyroModule):
             row_indices.append(self._graph.nodes[arrow]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
             distances.append(arrow_distances.new_zeros(()))
-
         transitions = transitions.index_put((torch.LongTensor(row_indices),
                                              torch.LongTensor(column_indices)),
                                             torch.stack(distances, dim=0).exp())
-        transitions = transitions / transitions.sum(dim=-1, keepdim=True)
+
+        diag_indices = [self._graph.nodes[obj]['index'] for obj in self.obs]
+        identity_ones = transitions.new_ones(len(diag_indices))
+        transitions = transitions.index_put((torch.LongTensor(diag_indices),
+                                             torch.LongTensor(diag_indices)),
+                                            identity_ones)
+
+        return transitions / transitions.sum(dim=-1, keepdim=True)
+
+    @pnn.pyro_method
+    def diffusion_probs(self, arrow_distances):
+        transitions = self.transition_matrix(arrow_distances)
         diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
         return diffusions
 
