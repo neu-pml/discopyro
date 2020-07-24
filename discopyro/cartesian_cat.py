@@ -80,6 +80,21 @@ class CartesianCategory(pyro.nn.PyroModule):
         self.confidence_beta = pnn.PyroParam(torch.ones(1),
                                              constraint=constraints.positive)
 
+    def _add_object(self, obj):
+        if obj in self._graph:
+            return
+        if obj.is_compound():
+            if len(obj) > 1:
+                for ty in obj.base():
+                    if not isinstance(ty, closed.CartesianClosed):
+                        ty = closed.wrap_base_ob(ty)
+                    self._add_object(ty)
+            else:
+                dom, cod = obj.arrow()
+                self._add_object(dom)
+                self._add_object(cod)
+        self._graph.add_node(obj, index=len(self._graph))
+
     @property
     def param_shapes(self):
         return (self.arrow_distances.shape, self.confidence_alpha.shape * 2)
