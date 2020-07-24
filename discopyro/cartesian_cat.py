@@ -21,15 +21,15 @@ class CartesianCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
-        self._graph.add_node(closed.TOP, index=0, object_index=0)
+        self._add_object(closed.TOP)
         for i, gen in enumerate(generators):
             assert isinstance(gen, closed.TypedBox)
 
             if gen.typed_dom not in self._graph:
-                self._graph.add_node(gen.typed_dom, index=len(self._graph))
+                self._add_object(gen.typed_dom)
             self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
             if gen.typed_cod not in self._graph:
-                self._graph.add_node(gen.typed_cod, index=len(self._graph))
+                self._add_object(gen.typed_cod)
             self._graph.add_edge(gen.typed_dom, gen)
             self._graph.add_edge(gen, gen.typed_cod)
 
