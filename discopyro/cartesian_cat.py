@@ -73,7 +73,8 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.add_edge(closed.TOP, macro)
             self._graph.add_edge(macro, obj)
 
-        self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars)),
+        self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars) +\
+                                                        len(self.macros)),
                                              constraint=constraints.positive)
         self.confidence_alpha = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
@@ -149,6 +150,20 @@ class CartesianCategory(pyro.nn.PyroModule):
             row_indices.append(self._graph.nodes[arrow]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
             distances.append(arrow_distances.new_zeros(()))
+
+        for macro in self.macros:
+            dom = list(self._graph.predecessors(macro))[0]
+            cod = list(self._graph.successors(macro))[0]
+            k = self._graph.nodes[macro]['arrow_index']
+
+            row_indices.append(self._graph.nodes[dom]['index'])
+            column_indices.append(self._graph.nodes[macro]['index'])
+            distances.append(-arrow_distances[k])
+
+            row_indices.append(self._graph.nodes[macro]['index'])
+            column_indices.append(self._graph.nodes[cod]['index'])
+            distances.append(arrow_distances.new_zeros(()))
+
         transitions = transitions.index_put((torch.LongTensor(row_indices),
                                              torch.LongTensor(column_indices)),
                                             torch.stack(distances, dim=0).exp())
