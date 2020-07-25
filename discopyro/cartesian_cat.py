@@ -125,6 +125,12 @@ class CartesianCategory(pyro.nn.PyroModule):
         return [node for node in self._graph
                 if isinstance(node, closed.TypedBox)]
 
+    @property
+    def macros(self):
+        return [node for node in self._graph if\
+                not isinstance(node, closed.CartesianClosed) and\
+                not isinstance(node, closed.TypedBox)]
+
     @pnn.pyro_method
     def transition_matrix(self, arrow_distances):
         transitions = arrow_distances.new_zeros([len(self._graph)] * 2)
