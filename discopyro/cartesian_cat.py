@@ -186,10 +186,10 @@ class CartesianCategory(pyro.nn.PyroModule):
         return -torch.log(self.diffusion_probs(arrow_distances))
 
     @pnn.pyro_method
-    def product_arrow(self, ty, probs, min_depth=0, infer={}):
-        entries = [self.sample_morphism(closed.wrap_base_ob(obj), probs,
-                                        min_depth, infer)
-                   for obj in ty.objects]
+    def product_arrow(self, obj, probs, min_depth=0, infer={}):
+        ty = obj.base()
+        entries = [self.sample_morphism(ob, probs, min_depth, infer)
+                   for ob in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
