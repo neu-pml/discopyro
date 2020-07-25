@@ -105,7 +105,8 @@ class CartesianCategory(pyro.nn.PyroModule):
         generators = []
         for edge in edges(obj):
             gen = edge[dir_index]
-            generators.append(gen)
+            counterpart = list(edges(gen))[0][dir_index]
+            generators.append((gen, counterpart))
         return generators
 
     @property
@@ -180,7 +181,9 @@ class CartesianCategory(pyro.nn.PyroModule):
             while location != dest:
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
-                    generators = [g for g in generators if g.typed_cod != dest]
+                    generators = [g for (g, cod) in generators if cod != dest]
+                else:
+                    generators = [g for (g, _) in generators]
                 gens = [self._graph.nodes[g]['index'] for g in generators]
                 dest_index = self._graph.nodes[dest]['index']
                 dest_probs = probs[gens][:, dest_index] + 1e-10
