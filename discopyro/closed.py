@@ -46,6 +46,10 @@ class CartesianClosed(Closed[Ty]):
 TOP = CartesianClosed.BASE(Ty())
 
 def wrap_base_ob(ob):
+    if isinstance(ob, CartesianClosed):
+        return ob
+    if isinstance(ob, Ty):
+        return CartesianClosed.BASE(ob)
     return CartesianClosed.BASE(Ty(ob))
 
 def unique_identifier():
