@@ -216,7 +216,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                     generator = generators[g_idx.item()]
                 else:
                     macro = generators[g_idx.item()]
-                    generator = macro(probs, min_depth, infer)
+                    generator = macro(probs, min_depth - len(path) - 1, infer)
                 path.append(generator)
                 location = generator.typed_cod
 
