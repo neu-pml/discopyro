@@ -207,7 +207,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                     generators = [g for (g, _) in generators]
                 gens = [self._graph.nodes[g]['index'] for g in generators]
                 dest_index = self._graph.nodes[dest]['index']
-                dest_probs = probs[gens][:, dest_index] + 1e-10
+                dest_probs = probs[gens][:, dest_index]
                 generators_categorical = dist.Categorical(dest_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical.to_event(0),
