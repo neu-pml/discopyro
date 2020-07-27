@@ -115,7 +115,7 @@ def try_unify(a, b, subst={}):
         l, lsub = try_unify(la, lb)
         r, rsub = try_unify(ra, rb)
         subst = try_merge_substitution(lsub, rsub)
-        return Closed.ARROW(l, r), subst
+        return a.__class__.ARROW(l, r), subst
     raise UnificationException(a, b)
 
 def unify(a, b, substitution={}):
@@ -142,7 +142,7 @@ def substitute(t, sub):
 def fold_arrow(ts):
     if len(ts) == 1:
         return ts[-1]
-    return fold_arrow(ts[:-2] + [Closed.ARROW(ts[-2], ts[-1])])
+    return fold_arrow(ts[:-2] + [ts[-1].__class__.ARROW(ts[-2], ts[-1])])
 
 def unfold_arrow(arrow):
     return arrow.match(
