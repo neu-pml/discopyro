@@ -43,6 +43,18 @@ class CartesianClosed(Closed[Ty]):
         is_product = self._key == Closed._Key.BASE and len(self.base()) > 1
         return is_arrow or is_product
 
+    def tensor(self, other):
+        if self == TOP and other == TOP:
+            return TOP
+        if self == TOP:
+            return other
+        if other == TOP:
+            return self
+        return CartesianClosed.BASE(Ty(self, other))
+
+    def __matmul__(self, other):
+        return self.tensor(other)
+
 TOP = CartesianClosed.BASE(Ty())
 
 def wrap_base_ob(ob):
