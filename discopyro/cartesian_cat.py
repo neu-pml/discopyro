@@ -198,27 +198,28 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         location = src
         path = []
+        dest_index = self._graph.nodes[dest]['index']
         with pyro.markov():
             while location != dest:
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
-                    generators = [g for (g, cod) in generators if cod != dest]
-                else:
-                    generators = [g for (g, _) in generators]
-                gens = [self._graph.nodes[g]['index'] for g in generators]
-                dest_index = self._graph.nodes[dest]['index']
+                    generators = [(g, cod) for (g, cod) in generators
+                                  if cod != dest]
+
+                gens = [self._graph.nodes[g]['index'] for (g, _) in generators]
                 dest_probs = probs[gens][:, dest_index]
                 generators_categorical = dist.Categorical(dest_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical.to_event(0),
                                     infer=infer)
-                if isinstance(generators[g_idx.item()], closed.TypedBox):
-                    generator = generators[g_idx.item()]
+
+                gen, cod = generators[g_idx.item()]
+                if isinstance(gen, closed.TypedBox):
+                    morphism = gen
                 else:
-                    macro = generators[g_idx.item()]
-                    generator = macro(probs, min_depth - len(path) - 1, infer)
-                path.append(generator)
-                location = generator.typed_cod
+                    morphism = gen(probs, min_depth - len(path) - 1, infer)
+                path.append(morphism)
+                location = cod
 
         return functools.reduce(lambda f, g: f >> g, path)
 
