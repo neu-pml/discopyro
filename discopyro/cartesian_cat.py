@@ -48,7 +48,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             assert elem.typed_dom == closed.TOP
             elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
                                          elem.typed_cod, elem.function,
-                                         lambda *args: None)
+                                         lambda *args: ())
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
