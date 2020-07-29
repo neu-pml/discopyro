@@ -19,8 +19,8 @@ class Closed(Generic[T], Ob):
 
     def _pretty(self, parenthesize=False):
         result = self.match(
-            base=lambda ob: str(ob),
-            var=lambda name: name,
+            base=lambda ob: 'Base(%s)' % str(ob),
+            var=lambda name: 'Var(%s)' % name,
             arrow=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
         )
         if parenthesize and self._key == Closed._Key.ARROW:
