@@ -46,9 +46,10 @@ class CartesianCategory(pyro.nn.PyroModule):
         for i, elem in enumerate(global_elements):
             assert isinstance(elem, closed.TypedBox)
             assert elem.typed_dom == closed.TOP
-            elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
-                                         elem.typed_cod, elem.function,
-                                         lambda *args: ())
+            if not isinstance(elem, closed.TypedDaggerBox):
+                elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
+                                             elem.typed_cod, elem.function,
+                                             lambda *args: ())
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
@@ -57,6 +58,9 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             if isinstance(elem.function, nn.Module):
                 self.add_module('global_element_%d' % i, elem.function)
+            dagger = elem.dagger()
+            if isinstance(dagger.function, nn.Module):
+                self.add_module('global_element_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.compound_obs):
             if obj._key == closed.CartesianClosed._Key.ARROW:
