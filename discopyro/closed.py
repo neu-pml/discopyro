@@ -19,8 +19,8 @@ class Closed(Generic[T], Ob):
 
     def _pretty(self, parenthesize=False):
         result = self.match(
-            base=lambda ob: str(ob),
-            var=lambda name: name,
+            base=lambda ob: 'Base(%s)' % str(ob),
+            var=lambda name: 'Var(%s)' % name,
             arrow=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
         )
         if parenthesize and self._key == Closed._Key.ARROW:
@@ -43,9 +43,25 @@ class CartesianClosed(Closed[Ty]):
         is_product = self._key == Closed._Key.BASE and len(self.base()) > 1
         return is_arrow or is_product
 
+    def tensor(self, other):
+        if self == TOP and other == TOP:
+            return TOP
+        if self == TOP:
+            return other
+        if other == TOP:
+            return self
+        return CartesianClosed.BASE(Ty(self, other))
+
+    def __matmul__(self, other):
+        return self.tensor(other)
+
 TOP = CartesianClosed.BASE(Ty())
 
 def wrap_base_ob(ob):
+    if isinstance(ob, CartesianClosed):
+        return ob
+    if isinstance(ob, Ty):
+        return CartesianClosed.BASE(ob)
     return CartesianClosed.BASE(Ty(ob))
 
 def unique_identifier():
@@ -99,7 +115,7 @@ def try_unify(a, b, subst={}):
         l, lsub = try_unify(la, lb)
         r, rsub = try_unify(ra, rb)
         subst = try_merge_substitution(lsub, rsub)
-        return Closed.ARROW(l, r), subst
+        return a.__class__.ARROW(l, r), subst
     raise UnificationException(a, b)
 
 def unify(a, b, substitution={}):
@@ -126,7 +142,7 @@ def substitute(t, sub):
 def fold_arrow(ts):
     if len(ts) == 1:
         return ts[-1]
-    return fold_arrow(ts[:-2] + [Closed.ARROW(ts[-2], ts[-1])])
+    return fold_arrow(ts[:-2] + [ts[-1].__class__.ARROW(ts[-2], ts[-1])])
 
 def unfold_arrow(arrow):
     return arrow.match(

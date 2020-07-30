@@ -21,15 +21,15 @@ class CartesianCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
-        self._graph.add_node(closed.TOP, index=0, object_index=0)
+        self._add_object(closed.TOP)
         for i, gen in enumerate(generators):
             assert isinstance(gen, closed.TypedBox)
 
             if gen.typed_dom not in self._graph:
-                self._graph.add_node(gen.typed_dom, index=len(self._graph))
+                self._add_object(gen.typed_dom)
             self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
             if gen.typed_cod not in self._graph:
-                self._graph.add_node(gen.typed_cod, index=len(self._graph))
+                self._add_object(gen.typed_cod)
             self._graph.add_edge(gen.typed_dom, gen)
             self._graph.add_edge(gen, gen.typed_cod)
 
@@ -41,14 +41,15 @@ class CartesianCategory(pyro.nn.PyroModule):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.obs):
-            self._graph.nodes[obj]['object_index'] = i + 1
+            self._graph.nodes[obj]['object_index'] = i
 
         for i, elem in enumerate(global_elements):
             assert isinstance(elem, closed.TypedBox)
             assert elem.typed_dom == closed.TOP
-            elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
-                                         elem.typed_cod, elem.function,
-                                         lambda *args: None)
+            if not isinstance(elem, closed.TypedDaggerBox):
+                elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
+                                             elem.typed_cod, elem.function,
+                                             lambda *args: ())
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
@@ -57,6 +58,9 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             if isinstance(elem.function, nn.Module):
                 self.add_module('global_element_%d' % i, elem.function)
+            dagger = elem.dagger()
+            if isinstance(dagger.function, nn.Module):
+                self.add_module('global_element_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.compound_obs):
             if obj._key == closed.CartesianClosed._Key.ARROW:
@@ -73,12 +77,28 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.add_edge(closed.TOP, macro)
             self._graph.add_edge(macro, obj)
 
-        self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars)),
+        self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars) +\
+                                                        len(self.macros)),
                                              constraint=constraints.positive)
         self.confidence_alpha = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
         self.confidence_beta = pnn.PyroParam(torch.ones(1),
                                              constraint=constraints.positive)
+
+    def _add_object(self, obj):
+        if obj in self._graph:
+            return
+        if obj.is_compound():
+            if len(obj) > 1:
+                for ty in obj.base():
+                    if not isinstance(ty, closed.CartesianClosed):
+                        ty = closed.wrap_base_ob(ty)
+                    self._add_object(ty)
+            else:
+                dom, cod = obj.arrow()
+                self._add_object(dom)
+                self._add_object(cod)
+        self._graph.add_node(obj, index=len(self._graph))
 
     @property
     def param_shapes(self):
@@ -90,7 +110,8 @@ class CartesianCategory(pyro.nn.PyroModule):
         generators = []
         for edge in edges(obj):
             gen = edge[dir_index]
-            generators.append(gen)
+            counterpart = list(edges(gen))[0][dir_index]
+            generators.append((gen, counterpart))
         return generators
 
     @property
@@ -108,6 +129,12 @@ class CartesianCategory(pyro.nn.PyroModule):
     def ars(self):
         return [node for node in self._graph
                 if isinstance(node, closed.TypedBox)]
+
+    @property
+    def macros(self):
+        return [node for node in self._graph if\
+                not isinstance(node, closed.CartesianClosed) and\
+                not isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
     def transition_matrix(self, arrow_distances):
@@ -127,6 +154,20 @@ class CartesianCategory(pyro.nn.PyroModule):
             row_indices.append(self._graph.nodes[arrow]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
             distances.append(arrow_distances.new_zeros(()))
+
+        for macro in self.macros:
+            dom = list(self._graph.predecessors(macro))[0]
+            cod = list(self._graph.successors(macro))[0]
+            k = self._graph.nodes[macro]['arrow_index']
+
+            row_indices.append(self._graph.nodes[dom]['index'])
+            column_indices.append(self._graph.nodes[macro]['index'])
+            distances.append(-arrow_distances[k])
+
+            row_indices.append(self._graph.nodes[macro]['index'])
+            column_indices.append(self._graph.nodes[cod]['index'])
+            distances.append(arrow_distances.new_zeros(()))
+
         transitions = transitions.index_put((torch.LongTensor(row_indices),
                                              torch.LongTensor(column_indices)),
                                             torch.stack(distances, dim=0).exp())
@@ -149,10 +190,10 @@ class CartesianCategory(pyro.nn.PyroModule):
         return -torch.log(self.diffusion_probs(arrow_distances))
 
     @pnn.pyro_method
-    def product_arrow(self, ty, probs, min_depth=0, infer={}):
-        entries = [self.sample_morphism(closed.wrap_base_ob(obj), probs,
-                                        min_depth, infer)
-                   for obj in ty.objects]
+    def product_arrow(self, obj, probs, min_depth=0, infer={}):
+        ty = obj.base()
+        entries = [self.sample_morphism(ob, probs, min_depth, infer)
+                   for ob in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
@@ -161,25 +202,28 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         location = src
         path = []
+        dest_index = self._graph.nodes[dest]['index']
         with pyro.markov():
             while location != dest:
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
-                    generators = [g for g in generators if g.typed_cod != dest]
-                gens = [self._graph.nodes[g]['index'] for g in generators]
-                dest_index = self._graph.nodes[dest]['index']
+                    generators = [(g, cod) for (g, cod) in generators
+                                  if cod != dest]
+
+                gens = [self._graph.nodes[g]['index'] for (g, _) in generators]
                 dest_probs = probs[gens][:, dest_index] + 1e-10
                 generators_categorical = dist.Categorical(dest_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical.to_event(0),
                                     infer=infer)
-                if isinstance(generators[g_idx.item()], closed.TypedBox):
-                    generator = generators[g_idx.item()]
+
+                gen, cod = generators[g_idx.item()]
+                if isinstance(gen, closed.TypedBox):
+                    morphism = gen
                 else:
-                    macro = generators[g_idx.item()]
-                    generator = macro(probs, min_depth, infer)
-                path.append(generator)
-                location = generator.typed_cod
+                    morphism = gen(probs, min_depth - len(path) - 1, infer)
+                path.append(morphism)
+                location = cod
 
         return functools.reduce(lambda f, g: f >> g, path)
 
