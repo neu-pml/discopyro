@@ -1,7 +1,7 @@
 from adt import adt, Case
 from discopy import messages, Ob, Ty
 from discopy.cartesian import Box
-from discopy.cat import AxiomError
+from discopy.cat import Arrow, AxiomError
 import functools
 from typing import Generic, TypeVar
 import uuid
@@ -235,7 +235,7 @@ class TypedDaggerBox(TypedBox):
             subst = unifier(self.typed_dom, other.typed_dom)
             subst = unifier(self.typed_cod, other.typed_cod, subst)
             return basics and subst is not None
-        if isinstance(other, Arrow):
+        elif isinstance(other, Arrow):
             return len(other) == 1 and other[0] == self
         return False
 
