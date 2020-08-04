@@ -218,14 +218,14 @@ class TypedDaggerBox(TypedBox):
         if self._dagger_name:
             dagger_name = self._dagger_name
         else:
-            dagger_name = self.name + '.dagger()'
+            dagger_name = self.name + "$^\\dagger$"
         return TypedDaggerBox(dagger_name, self.typed_cod, self.typed_dom,
                               self._dagger_function, self._function, self.name,
                               not self._dagger)
 
     def __repr__(self):
         if self.is_dagger:
-            return repr(self.dagger()) + ".dagger()"
+            return repr(self.dagger()) + "$^\\dagger$"
         dom, cod = self.type.arrow()
         function_rep = repr(self.function) if self.function else ''
         return "TypedDaggerBox(name={}, dom={}, cod={}, function={})".format(
