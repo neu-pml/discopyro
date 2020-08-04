@@ -204,8 +204,9 @@ class TypedBox(Box):
 
 class TypedDaggerBox(TypedBox):
     def __init__(self, name, dom, cod, function=None, dagger_function=None,
-                 is_dagger=False):
+                 dagger_name=None, is_dagger=False):
         self._dagger_function = dagger_function
+        self._dagger_name = dagger_name
         self._dagger = is_dagger
         super().__init__(name, dom, cod, function)
 
@@ -214,8 +215,12 @@ class TypedDaggerBox(TypedBox):
         return self._dagger
 
     def dagger(self):
-        return TypedDaggerBox(self.name, self.typed_cod, self.typed_dom,
-                              self._dagger_function, self._function,
+        if self._dagger_name:
+            dagger_name = self._dagger_name
+        else:
+            dagger_name = self.name + '.dagger()'
+        return TypedDaggerBox(dagger_name, self.typed_cod, self.typed_dom,
+                              self._dagger_function, self._function, self.name,
                               not self._dagger)
 
     def __repr__(self):
@@ -231,7 +236,8 @@ class TypedDaggerBox(TypedBox):
         if isinstance(other, TypedBox):
             basics = all(self.__getattribute__(x) == other.__getattribute__(x)
                          for x in ['name', 'dom', 'cod', 'function',
-                                   '_dagger_function', '_dagger'])
+                                   '_dagger_function', '_dagger_name',
+                                   '_dagger'])
             subst = unifier(self.typed_dom, other.typed_dom)
             subst = unifier(self.typed_cod, other.typed_cod, subst)
             return basics and subst is not None
