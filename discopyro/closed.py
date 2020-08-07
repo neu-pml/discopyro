@@ -37,6 +37,11 @@ class Closed(Generic[T], Ob):
     def __str__(self):
         return self._pretty()
 
+def pretty_tuple_type(ty):
+    if not ty.objects:
+        return '\\top'
+    return ' \\times '.join([str(obj) for obj in ty.objects])
+
 class CartesianClosed(Closed[Ty]):
     def is_compound(self):
         is_arrow = self._key == Closed._Key.ARROW
@@ -54,6 +59,16 @@ class CartesianClosed(Closed[Ty]):
 
     def __matmul__(self, other):
         return self.tensor(other)
+
+    def _pretty(self, parenthesize=False):
+        result = self.match(
+            base=lambda ty: pretty_tuple_type(ty),
+            var=lambda name: 'Var(%s)' % name,
+            arrow=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
+        )
+        if parenthesize and self._key == Closed._Key.ARROW:
+            result = '(%s)' % result
+        return result
 
 TOP = CartesianClosed.BASE(Ty())
 
