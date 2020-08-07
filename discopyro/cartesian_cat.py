@@ -2,6 +2,7 @@ import collections
 from discopy import Ty
 import functools
 from indexed import IndexedOrderedDict
+import matplotlib.pyplot as plt
 import networkx as nx
 import pyro
 from pyro.contrib.autoname import name_count
@@ -252,6 +253,47 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         return self.sample_morphism(obj, probs, min_depth, infer)
 
+    def draw(self, skip_edges=[], filename=None):
+        skeleton = nx.MultiDiGraph()
+        for obj in self.obs:
+            skeleton.add_node(obj)
+        arrow_edges = []
+        arrow_labels = {}
+        for arrow in self.ars:
+            u, v = arrow.type.arrow()
+            if (u, v) in skip_edges:
+                continue
+            k = self._graph.nodes[arrow]['arrow_index']
+            distance = self.arrow_distances[k]
+            skeleton.add_edge(u, v, arrow, weight=1. / distance)
+            arrow_edges.append((u, v))
+            arrow_labels[(u, v)] = arrow.name
+        macro_edges = []
+        for macro in self.macros:
+            u = list(self._graph.predecessors(macro))[0]
+            v = list(self._graph.successors(macro))[0]
+            if (u, v) in skip_edges:
+                continue
+            k = self._graph.nodes[macro]['arrow_index']
+            distance = self.arrow_distances[k]
+            skeleton.add_edge(u, v, weight=1. / distance)
+            macro_edges.append((u, v))
+
+        pos = nx.spring_layout(skeleton, k=10, weight='weight')
+        nx.draw_networkx_nodes(skeleton, pos, node_size=700)
+        nx.draw_networkx_edges(skeleton, pos, node_size=700,
+                               edgelist=arrow_edges, width=2, edge_color='gray',
+                               alpha=0.75)
+        nx.draw_networkx_edges(skeleton, pos, node_size=700,
+                               edgelist=macro_edges, edge_color='gray',
+                               alpha=0.5)
+        nx.draw_networkx_labels(skeleton, pos, font_size=12,
+                                labels={obj: '$%s$' % str(obj) for obj
+                                        in self.obs})
+        plt.axis("off")
+        if filename:
+            plt.savefig(filename)
+        plt.show()
 
     def resume_from_checkpoint(self, resume_path):
         """
