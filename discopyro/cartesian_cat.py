@@ -78,9 +78,8 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.add_edge(closed.TOP, macro)
             self._graph.add_edge(macro, obj)
 
-        self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars) +\
-                                                        len(self.macros)),
-                                             constraint=constraints.positive)
+        self.register_buffer('arrow_distances', torch.ones(len(self.ars) +\
+                                                           len(self.macros)))
         self.temperature_alpha = pnn.PyroParam(torch.ones(1),
                                                constraint=constraints.positive)
         self.temperature_beta = pnn.PyroParam(torch.ones(1),
