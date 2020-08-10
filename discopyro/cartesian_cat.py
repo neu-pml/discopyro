@@ -138,7 +138,9 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @pnn.pyro_method
     def transition_matrix(self, arrow_distances):
-        transitions = arrow_distances.new_zeros([len(self._graph)] * 2)
+        transitions = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
+            arrow_distances
+        )
 
         row_indices = []
         column_indices = []
