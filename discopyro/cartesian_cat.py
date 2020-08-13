@@ -81,10 +81,10 @@ class CartesianCategory(pyro.nn.PyroModule):
         self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars) +\
                                                         len(self.macros)),
                                              constraint=constraints.positive)
-        self.confidence_alpha = pnn.PyroParam(torch.ones(1),
+        self.temperature_alpha = pnn.PyroParam(torch.ones(1),
+                                               constraint=constraints.positive)
+        self.temperature_beta = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
-        self.confidence_beta = pnn.PyroParam(torch.ones(1),
-                                             constraint=constraints.positive)
 
     def _add_object(self, obj):
         if obj in self._graph:
@@ -103,7 +103,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @property
     def param_shapes(self):
-        return (self.arrow_distances.shape, self.confidence_alpha.shape * 2)
+        return (self.arrow_distances.shape, self.temperature_alpha.shape * 2)
 
     def _object_generators(self, obj, forward=True):
         edges = self._graph.out_edges if forward else self._graph.in_edges
@@ -139,7 +139,9 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @pnn.pyro_method
     def transition_matrix(self, arrow_distances):
-        transitions = arrow_distances.new_zeros([len(self._graph)] * 2)
+        transitions = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
+            arrow_distances
+        )
 
         row_indices = []
         column_indices = []
@@ -237,19 +239,18 @@ class CartesianCategory(pyro.nn.PyroModule):
             src, dest = closed.fold_product(entries[:-1]), entries[-1]
             return self.path_between(src, dest, probs, min_depth, infer)
 
-    def forward(self, obj, min_depth=2, infer={}, confidence=None,
+    def forward(self, obj, min_depth=2, infer={}, temperature=None,
                 arrow_distances=None):
-        if confidence is None:
-            confidence = pyro.sample(
-                'distances_confidence',
-                dist.Gamma(self.confidence_alpha,
-                           self.confidence_beta).to_event(0)
+        if temperature is None:
+            temperature = pyro.sample(
+                'distances_temperature',
+                dist.Gamma(self.temperature_alpha,
+                           self.temperature_beta).to_event(0)
             )
         if arrow_distances is None:
             arrow_distances = self.arrow_distances
 
-        arrow_distances = confidence * arrow_distances
-        probs = self.diffusion_probs(arrow_distances)
+        probs = self.diffusion_probs(arrow_distances) / temperature
 
         return self.sample_morphism(obj, probs, min_depth, infer)
 
