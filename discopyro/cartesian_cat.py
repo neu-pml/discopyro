@@ -198,9 +198,15 @@ class CartesianCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
         ty = obj.base()
-        entries = [self.sample_morphism(ob, probs, temperature, min_depth,
-                                        infer) for ob in ty.objects]
-        return functools.reduce(lambda f, g: f.tensor(g), entries)
+        product = None
+        for ob in ty.objects:
+            entry = self.sample_morphism(ob, probs, temperature, min_depth,
+                                         infer)
+            if product is None:
+                product = entry
+            else:
+                product = product @ entry
+        return product
 
     @pnn.pyro_method
     def path_between(self, src, dest, probs, temperature, min_depth=0,
