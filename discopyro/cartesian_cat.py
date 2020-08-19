@@ -15,6 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from . import closed
+from . import util
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
@@ -250,7 +251,8 @@ class CartesianCategory(pyro.nn.PyroModule):
         if arrow_distances is None:
             arrow_distances = self.arrow_distances
 
-        probs = self.diffusion_probs(arrow_distances) / temperature
+        probs = util.soften_probabilities(self.diffusion_probs(arrow_distances),
+                                          temperature)
 
         return self.sample_morphism(obj, probs, min_depth, infer)
 
