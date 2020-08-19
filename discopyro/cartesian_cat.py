@@ -1,5 +1,6 @@
 import collections
 from discopy import Ty
+from discopy.cartesian import Id
 import functools
 from indexed import IndexedOrderedDict
 import matplotlib.pyplot as plt
@@ -214,7 +215,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         assert dest != closed.TOP
 
         location = src
-        path = []
+        path = Id(len(src))
         dest_index = self._graph.nodes[dest]['index']
         with pyro.markov():
             while location != dest:
@@ -240,10 +241,10 @@ class CartesianCategory(pyro.nn.PyroModule):
                 else:
                     morphism = gen(probs, temperature,
                                    min_depth - len(path) - 1, infer)
-                path.append(morphism)
+                path = path >> morphism
                 location = cod
 
-        return functools.reduce(lambda f, g: f >> g, path)
+        return path
 
     def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
         with name_count():
