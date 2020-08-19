@@ -187,7 +187,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     def diffusion_probs(self, arrow_distances):
         transitions = self.transition_matrix(arrow_distances)
         diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
-        return diffusions
+        return diffusions / diffusions.sum(dim=-1, keepdim=True)
 
     def diffusion_distances(self, arrow_distances):
         return -torch.log(self.diffusion_probs(arrow_distances))
