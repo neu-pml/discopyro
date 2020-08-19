@@ -67,11 +67,13 @@ class CartesianCategory(pyro.nn.PyroModule):
         for i, obj in enumerate(self.compound_obs):
             if obj._key == closed.CartesianClosed._Key.ARROW:
                 src, dest = obj.arrow()
-                def macro(probs, min_depth, infer, l=src, r=dest):
-                    return self.path_between(l, r, probs, min_depth, infer)
+                def macro(probs, temp, min_depth, infer, l=src, r=dest):
+                    return self.path_between(l, r, probs, temp, min_depth,
+                                             infer)
             elif obj._key == closed.CartesianClosed._Key.BASE:
-                def macro(probs, min_depth, infer, obj=obj):
-                    return self.product_arrow(obj, probs, min_depth, infer)
+                def macro(probs, temp, min_depth, infer, obj=obj):
+                    return self.product_arrow(obj, probs, temp, min_depth,
+                                              infer)
 
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
@@ -194,14 +196,15 @@ class CartesianCategory(pyro.nn.PyroModule):
         return -torch.log(self.diffusion_probs(arrow_distances))
 
     @pnn.pyro_method
-    def product_arrow(self, obj, probs, min_depth=0, infer={}):
+    def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
         ty = obj.base()
-        entries = [self.sample_morphism(ob, probs, min_depth, infer)
-                   for ob in ty.objects]
+        entries = [self.sample_morphism(ob, probs, temperature, min_depth,
+                                        infer) for ob in ty.objects]
         return functools.reduce(lambda f, g: f.tensor(g), entries)
 
     @pnn.pyro_method
-    def path_between(self, src, dest, probs, min_depth=0, infer={}):
+    def path_between(self, src, dest, probs, temperature, min_depth=0,
+                     infer={}):
         assert dest != closed.TOP
 
         location = src
@@ -213,32 +216,38 @@ class CartesianCategory(pyro.nn.PyroModule):
                 if len(path) + 1 < min_depth:
                     generators = [(g, cod) for (g, cod) in generators
                                   if cod != dest]
-
                 gens = [self._graph.nodes[g]['index'] for (g, _) in generators]
-                dest_probs = probs[gens][:, dest_index] + 1e-10
+
+                dest_probs = probs[gens][:, dest_index]
+                viables = dest_probs.nonzero(as_tuple=True)
+                dest_probs = util.soften_probabilities(
+                    dest_probs[viables], temperature, -1, None
+                )
                 generators_categorical = dist.Categorical(dest_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
-                gen, cod = generators[g_idx.item()]
+                gen, cod = generators[viables[0][g_idx.item()]]
                 if isinstance(gen, closed.TypedBox):
                     morphism = gen
                 else:
-                    morphism = gen(probs, min_depth - len(path) - 1, infer)
+                    morphism = gen(probs, temperature,
+                                   min_depth - len(path) - 1, infer)
                 path.append(morphism)
                 location = cod
 
         return functools.reduce(lambda f, g: f >> g, path)
 
-    def sample_morphism(self, obj, probs, min_depth=2, infer={}):
+    def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
         with name_count():
             entries = closed.unfold_arrow(obj)
             if len(entries) == 1:
-                return self.path_between(closed.TOP, obj, probs, min_depth,
-                                         infer)
+                return self.path_between(closed.TOP, obj, probs, temperature,
+                                         min_depth, infer)
             src, dest = closed.fold_product(entries[:-1]), entries[-1]
-            return self.path_between(src, dest, probs, min_depth, infer)
+            return self.path_between(src, dest, probs, temperature, min_depth,
+                                     infer)
 
     def forward(self, obj, min_depth=2, infer={}, temperature=None,
                 arrow_distances=None):
@@ -251,10 +260,9 @@ class CartesianCategory(pyro.nn.PyroModule):
         if arrow_distances is None:
             arrow_distances = self.arrow_distances
 
-        probs = util.soften_probabilities(self.diffusion_probs(arrow_distances),
-                                          temperature)
+        probs = self.diffusion_probs(arrow_distances)
 
-        return self.sample_morphism(obj, probs, min_depth, infer)
+        return self.sample_morphism(obj, probs, temperature, min_depth, infer)
 
     def draw(self, skip_edges=[], filename=None):
         skeleton = nx.MultiDiGraph()
