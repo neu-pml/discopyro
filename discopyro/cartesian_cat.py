@@ -201,7 +201,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         ty = obj.base()
         product = None
         for ob in ty.objects:
-            entry = self.sample_morphism(ob, probs, temperature, min_depth,
+            entry = self.sample_morphism(ob, probs, temperature + 1, min_depth,
                                          infer)
             if product is None:
                 product = entry
