@@ -82,9 +82,14 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.add_edge(closed.TOP, macro)
             self._graph.add_edge(macro, obj)
 
-        self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars) +\
-                                                        len(self.macros)),
-                                             constraint=constraints.positive)
+        self.arrow_distance_alphas = pnn.PyroParam(
+            torch.ones(len(self.ars) + len(self.macros)),
+            constraint=constraints.positive
+        )
+        self.arrow_distance_betas = pnn.PyroParam(
+            torch.ones(len(self.ars) + len(self.macros)),
+            constraint=constraints.positive
+        )
         self.temperature_alpha = pnn.PyroParam(torch.ones(1),
                                                constraint=constraints.positive)
         self.temperature_beta = pnn.PyroParam(torch.ones(1),
@@ -265,7 +270,11 @@ class CartesianCategory(pyro.nn.PyroModule):
                            self.temperature_beta).to_event(0)
             )
         if arrow_distances is None:
-            arrow_distances = self.arrow_distances
+            arrow_distances = pyro.sample(
+                'arrow_distances',
+                dist.Gamma(self.arrow_distance_alphas,
+                           self.arrow_distance_betas).to_event(0)
+            )
 
         probs = self.diffusion_probs(arrow_distances)
 
