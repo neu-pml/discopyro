@@ -273,7 +273,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             arrow_distances = pyro.sample(
                 'arrow_distances',
                 dist.Gamma(self.arrow_distance_alphas,
-                           self.arrow_distance_betas).to_event(0)
+                           self.arrow_distance_betas).to_event(1)
             )
 
         probs = self.diffusion_probs(arrow_distances)
