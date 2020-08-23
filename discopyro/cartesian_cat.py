@@ -281,6 +281,9 @@ class CartesianCategory(pyro.nn.PyroModule):
         return self.sample_morphism(obj, probs, temperature, min_depth, infer)
 
     def draw(self, skip_edges=[], filename=None):
+        arrow_distances = dist.Gamma(self.arrow_distance_alphas,
+                                     self.arrow_distance_betas).mean
+
         skeleton = nx.MultiDiGraph()
         for obj in self.obs:
             skeleton.add_node(obj)
@@ -291,8 +294,8 @@ class CartesianCategory(pyro.nn.PyroModule):
             if (u, v) in skip_edges:
                 continue
             k = self._graph.nodes[arrow]['arrow_index']
-            distance = self.arrow_distances[k]
-            skeleton.add_edge(u, v, arrow, weight=1. / distance)
+            distance = arrow_distances[k]
+            skeleton.add_edge(u, v, arrow, weight=torch.exp(-distance))
             arrow_edges.append((u, v))
             arrow_labels[(u, v)] = arrow.name
         macro_edges = []
@@ -302,8 +305,8 @@ class CartesianCategory(pyro.nn.PyroModule):
             if (u, v) in skip_edges:
                 continue
             k = self._graph.nodes[macro]['arrow_index']
-            distance = self.arrow_distances[k]
-            skeleton.add_edge(u, v, weight=1. / distance)
+            distance = arrow_distances[k]
+            skeleton.add_edge(u, v, weight=torch.exp(-distance))
             macro_edges.append((u, v))
 
         pos = nx.spring_layout(skeleton, k=10, weight='weight')
