@@ -70,6 +70,17 @@ class CartesianClosed(Closed[Ty]):
             result = '(%s)' % result
         return result
 
+    def base_elements(self):
+        def ty_base_elements(ty):
+            return set().union(*[t.base_elements() for t in ty
+                                 if isinstance(t, CartesianClosed)]) |\
+                   {t for t in ty if not isinstance(t, CartesianClosed)}
+        return self.match(
+            base=ty_base_elements,
+            var=lambda name: set(CartesianClosed.VAR(name)),
+            arrow=lambda l, r: l.base_elements() | r.base_elements()
+        )
+
 TOP = CartesianClosed.BASE(Ty())
 
 def wrap_base_ob(ob):
