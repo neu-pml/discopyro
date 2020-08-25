@@ -82,11 +82,11 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.add_edge(closed.TOP, macro)
             self._graph.add_edge(macro, obj)
 
-        self.arrow_distance_alphas = pnn.PyroParam(
+        self.arrow_weight_alphas = pnn.PyroParam(
             torch.ones(len(self.ars) + len(self.macros)),
             constraint=constraints.positive
         )
-        self.arrow_distance_betas = pnn.PyroParam(
+        self.arrow_weight_betas = pnn.PyroParam(
             torch.ones(len(self.ars) + len(self.macros)),
             constraint=constraints.positive
         )
@@ -112,7 +112,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @property
     def param_shapes(self):
-        return (self.arrow_distances.shape, self.temperature_alpha.shape * 2)
+        return (self.arrow_weights.shape, self.temperature_alpha.shape * 2)
 
     def _object_generators(self, obj, forward=True):
         edges = self._graph.out_edges if forward else self._graph.in_edges
@@ -147,25 +147,25 @@ class CartesianCategory(pyro.nn.PyroModule):
                 not isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def transition_matrix(self, arrow_distances):
+    def transition_matrix(self, arrow_weights):
         transitions = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
-            arrow_distances
+            arrow_weights
         )
 
         row_indices = []
         column_indices = []
-        distances = []
+        weights = []
         for arrow in self.ars:
             dom, cod = arrow.typed_dom, arrow.typed_cod
 
             row_indices.append(self._graph.nodes[dom]['index'])
             column_indices.append(self._graph.nodes[arrow]['index'])
             k = self._graph.nodes[arrow]['arrow_index']
-            distances.append(-arrow_distances[k])
+            weights.append(arrow_weights[k])
 
             row_indices.append(self._graph.nodes[arrow]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
-            distances.append(arrow_distances.new_zeros(()))
+            weights.append(arrow_weights.new_ones(()))
 
         for macro in self.macros:
             dom = list(self._graph.predecessors(macro))[0]
@@ -174,15 +174,15 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             row_indices.append(self._graph.nodes[dom]['index'])
             column_indices.append(self._graph.nodes[macro]['index'])
-            distances.append(-arrow_distances[k])
+            weights.append(arrow_weights[k])
 
             row_indices.append(self._graph.nodes[macro]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
-            distances.append(arrow_distances.new_zeros(()))
+            weights.append(arrow_weights.new_ones(()))
 
         transitions = transitions.index_put((torch.LongTensor(row_indices),
                                              torch.LongTensor(column_indices)),
-                                            torch.stack(distances, dim=0).exp())
+                                            torch.stack(weights, dim=0))
 
         diag_indices = [self._graph.nodes[obj]['index'] for obj in self.obs]
         identity_ones = transitions.new_ones(len(diag_indices))
@@ -193,13 +193,10 @@ class CartesianCategory(pyro.nn.PyroModule):
         return transitions / transitions.sum(dim=-1, keepdim=True)
 
     @pnn.pyro_method
-    def diffusion_probs(self, arrow_distances):
-        transitions = self.transition_matrix(arrow_distances)
+    def diffusion_probs(self, arrow_weights):
+        transitions = self.transition_matrix(arrow_weights)
         diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
         return diffusions / diffusions.sum(dim=-1, keepdim=True)
-
-    def diffusion_distances(self, arrow_distances):
-        return -torch.log(self.diffusion_probs(arrow_distances))
 
     @pnn.pyro_method
     def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
@@ -262,27 +259,27 @@ class CartesianCategory(pyro.nn.PyroModule):
                                      infer)
 
     def forward(self, obj, min_depth=2, infer={}, temperature=None,
-                arrow_distances=None):
+                arrow_weights=None):
         if temperature is None:
             temperature = pyro.sample(
-                'distances_temperature',
+                'weights_temperature',
                 dist.Gamma(self.temperature_alpha,
                            self.temperature_beta).to_event(0)
             )
-        if arrow_distances is None:
-            arrow_distances = pyro.sample(
-                'arrow_distances',
-                dist.Gamma(self.arrow_distance_alphas,
-                           self.arrow_distance_betas).to_event(1)
+        if arrow_weights is None:
+            arrow_weights = pyro.sample(
+                'arrow_weights',
+                dist.Beta(self.arrow_weight_alphas,
+                          self.arrow_weight_betas).to_event(1)
             )
 
-        probs = self.diffusion_probs(arrow_distances)
+        probs = self.diffusion_probs(arrow_weights)
 
         return self.sample_morphism(obj, probs, temperature, min_depth, infer)
 
     def draw(self, skip_edges=[], filename=None):
-        arrow_distances = dist.Gamma(self.arrow_distance_alphas,
-                                     self.arrow_distance_betas).mean
+        arrow_weights = dist.Beta(self.arrow_weight_alphas,
+                                  self.arrow_weight_betas).mean
 
         skeleton = nx.MultiDiGraph()
         for obj in self.obs:
@@ -294,8 +291,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             if (u, v) in skip_edges:
                 continue
             k = self._graph.nodes[arrow]['arrow_index']
-            distance = arrow_distances[k]
-            skeleton.add_edge(u, v, arrow, weight=torch.exp(-distance))
+            skeleton.add_edge(u, v, arrow, weight=arrow_weights[k])
             arrow_edges.append((u, v))
             arrow_labels[(u, v)] = arrow.name
         macro_edges = []
@@ -305,8 +301,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             if (u, v) in skip_edges:
                 continue
             k = self._graph.nodes[macro]['arrow_index']
-            distance = arrow_distances[k]
-            skeleton.add_edge(u, v, weight=torch.exp(-distance))
+            skeleton.add_edge(u, v, weight=arrow_weights[k])
             macro_edges.append((u, v))
 
         pos = nx.spring_layout(skeleton, k=10, weight='weight')
