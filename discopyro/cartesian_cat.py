@@ -9,7 +9,7 @@ import pyro
 from pyro.contrib.autoname import name_count
 import pyro.distributions as dist
 import pyro.nn as pnn
-import pytorch_expm.expm_taylor as expm
+import pytorch_expm.expm_pade as expm
 import torch
 import torch.distributions.constraints as constraints
 import torch.nn as nn
@@ -195,7 +195,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def diffusion_probs(self, arrow_weights):
         transitions = self.transition_matrix(arrow_weights)
-        diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
+        diffusions = expm.expm(transitions)
         return diffusions / diffusions.sum(dim=-1, keepdim=True)
 
     @pnn.pyro_method
