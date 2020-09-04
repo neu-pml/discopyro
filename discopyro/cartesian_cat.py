@@ -183,16 +183,16 @@ class CartesianCategory(pyro.nn.PyroModule):
                 gens = [self._graph.nodes[g]['index'] for (g, _) in generators]
 
                 dest_probs = probs[gens][:, dest_index]
-                viables = dest_probs.nonzero(as_tuple=True)
-                dest_probs = util.soften_probabilities(
+                viables = dest_probs.nonzero(as_tuple=True)[0]
+                selection_probs = util.soften_probabilities(
                     dest_probs[viables], temperature, -1, None
                 )
-                generators_categorical = dist.Categorical(dest_probs)
+                generators_categorical = dist.Categorical(selection_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
-                gen, cod = generators[viables[0][g_idx.item()]]
+                gen, cod = generators[viables[g_idx.item()]]
                 if isinstance(gen, closed.TypedBox):
                     morphism = gen
                 else:
