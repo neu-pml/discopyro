@@ -9,7 +9,7 @@ import pyro
 from pyro.contrib.autoname import name_count
 import pyro.distributions as dist
 import pyro.nn as pnn
-import pytorch_expm.expm_pade as expm
+import scipy.linalg
 import torch
 import torch.distributions.constraints as constraints
 import torch.nn as nn
@@ -147,56 +147,39 @@ class CartesianCategory(pyro.nn.PyroModule):
                 not isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def transition_matrix(self, arrow_weights):
-        transitions = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
-            arrow_weights
+    def diffusion_probs(self):
+        adjacency = nx.to_numpy_matrix(self._graph)
+        return torch.from_numpy(scipy.linalg.expm(adjacency)).to(
+            self.temperature_alpha
         )
+
+    @pnn.pyro_method
+    def weights_matrix(self, arrow_weights):
+        weights = torch.ones(len(self._graph), len(self._graph),
+                             device=arrow_weights.device)
 
         row_indices = []
         column_indices = []
-        weights = []
+        ws = []
         for arrow in self.ars:
-            dom, cod = arrow.typed_dom, arrow.typed_cod
-
-            row_indices.append(self._graph.nodes[dom]['index'])
-            column_indices.append(self._graph.nodes[arrow]['index'])
-            k = self._graph.nodes[arrow]['arrow_index']
-            weights.append(arrow_weights[k])
+            cod = arrow.typed_cod
 
             row_indices.append(self._graph.nodes[arrow]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
-            weights.append(arrow_weights.new_ones(()))
+            k = self._graph.nodes[arrow]['arrow_index']
+            ws.append(arrow_weights[k])
 
         for macro in self.macros:
-            dom = list(self._graph.predecessors(macro))[0]
             cod = list(self._graph.successors(macro))[0]
-            k = self._graph.nodes[macro]['arrow_index']
-
-            row_indices.append(self._graph.nodes[dom]['index'])
-            column_indices.append(self._graph.nodes[macro]['index'])
-            weights.append(arrow_weights[k])
 
             row_indices.append(self._graph.nodes[macro]['index'])
             column_indices.append(self._graph.nodes[cod]['index'])
-            weights.append(arrow_weights.new_ones(()))
+            k = self._graph.nodes[macro]['arrow_index']
+            ws.append(arrow_weights[k])
 
-        transitions = transitions.index_put((torch.LongTensor(row_indices),
-                                             torch.LongTensor(column_indices)),
-                                            torch.stack(weights, dim=0))
-
-        diag_indices = [self._graph.nodes[obj]['index'] for obj in self.obs]
-        identity_ones = transitions.new_ones(len(diag_indices))
-        transitions = transitions.index_put((torch.LongTensor(diag_indices),
-                                             torch.LongTensor(diag_indices)),
-                                            identity_ones)
-
-        return transitions / transitions.sum(dim=-1, keepdim=True)
-
-    @pnn.pyro_method
-    def diffusion_probs(self, arrow_weights):
-        transitions = self.transition_matrix(arrow_weights)
-        diffusions = expm.expm(transitions)
-        return diffusions / diffusions.sum(dim=-1, keepdim=True)
+        return weights.index_put((torch.LongTensor(row_indices),
+                                  torch.LongTensor(column_indices)),
+                                 torch.stack(ws, dim=0))
 
     @pnn.pyro_method
     def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
@@ -228,16 +211,16 @@ class CartesianCategory(pyro.nn.PyroModule):
                 gens = [self._graph.nodes[g]['index'] for (g, _) in generators]
 
                 dest_probs = probs[gens][:, dest_index]
-                viables = dest_probs.nonzero(as_tuple=True)
-                dest_probs = util.soften_probabilities(
+                viables = dest_probs.nonzero(as_tuple=True)[0]
+                selection_probs = util.soften_probabilities(
                     dest_probs[viables], temperature, -1, None
                 )
-                generators_categorical = dist.Categorical(dest_probs)
+                generators_categorical = dist.Categorical(selection_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
-                gen, cod = generators[viables[0][g_idx.item()]]
+                gen, cod = generators[viables[g_idx.item()]]
                 if isinstance(gen, closed.TypedBox):
                     morphism = gen
                 else:
@@ -273,7 +256,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                           self.arrow_weight_betas).to_event(1)
             )
 
-        probs = self.diffusion_probs(arrow_weights)
+        probs = self.diffusion_probs() + self.weights_matrix(arrow_weights)
 
         return self.sample_morphism(obj, probs, temperature, min_depth, infer)
 
