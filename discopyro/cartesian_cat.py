@@ -256,7 +256,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                           self.arrow_weight_betas).to_event(1)
             )
 
-        probs = self.diffusion_probs()
+        probs = self.diffusion_probs() + self.weights_matrix(arrow_weights)
 
         return self.sample_morphism(obj, probs, temperature, min_depth, infer)
 
