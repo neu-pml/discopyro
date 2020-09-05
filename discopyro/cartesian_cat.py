@@ -154,6 +154,34 @@ class CartesianCategory(pyro.nn.PyroModule):
         )
 
     @pnn.pyro_method
+    def weights_matrix(self, arrow_weights):
+        weights = torch.ones(len(self._graph), len(self._graph),
+                             device=arrow_weights.device)
+
+        row_indices = []
+        column_indices = []
+        ws = []
+        for arrow in self.ars:
+            cod = arrow.typed_cod
+
+            row_indices.append(self._graph.nodes[arrow]['index'])
+            column_indices.append(self._graph.nodes[cod]['index'])
+            k = self._graph.nodes[arrow]['arrow_index']
+            ws.append(arrow_weights[k])
+
+        for macro in self.macros:
+            cod = list(self._graph.successors(macro))[0]
+
+            row_indices.append(self._graph.nodes[macro]['index'])
+            column_indices.append(self._graph.nodes[cod]['index'])
+            k = self._graph.nodes[macro]['arrow_index']
+            ws.append(arrow_weights[k])
+
+        return weights.index_put((torch.LongTensor(row_indices),
+                                  torch.LongTensor(column_indices)),
+                                 torch.stack(ws, dim=0))
+
+    @pnn.pyro_method
     def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
         ty = obj.base()
         product = None
