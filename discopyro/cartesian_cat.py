@@ -252,8 +252,8 @@ class CartesianCategory(pyro.nn.PyroModule):
         if arrow_weights is None:
             arrow_weights = pyro.sample(
                 'arrow_weights',
-                dist.Beta(self.arrow_weight_alphas,
-                          self.arrow_weight_betas).to_event(1)
+                dist.Gamma(self.arrow_weight_alphas,
+                           self.arrow_weight_betas).to_event(1)
             )
 
         probs = self.diffusion_probs() + self.weights_matrix(arrow_weights)
