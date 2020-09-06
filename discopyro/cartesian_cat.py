@@ -16,7 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from . import closed
-from . import util
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
