@@ -147,7 +147,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                 not isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def diffusion_probs(self):
+    def diffusion_counts(self):
         adjacency = nx.to_numpy_matrix(self._graph)
         return torch.from_numpy(scipy.linalg.expm(adjacency)).to(
             self.temperature_alpha
@@ -256,7 +256,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                            self.arrow_weight_betas).to_event(1)
             )
 
-        probs = self.diffusion_probs() + self.weights_matrix(arrow_weights)
+        probs = self.diffusion_counts() + self.weights_matrix(arrow_weights)
 
         return self.sample_morphism(obj, probs, temperature, min_depth, infer)
 
