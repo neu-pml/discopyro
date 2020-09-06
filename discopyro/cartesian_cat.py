@@ -202,8 +202,9 @@ class CartesianCategory(pyro.nn.PyroModule):
 
                 dest_probs = probs[gens][:, dest_index]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
-                selection_probs = util.soften_probabilities(
-                    dest_probs[viables], temperature, -1, None
+                selection_probs = F.softmax(
+                    dest_probs[viables].log() / (temperature + 1e-10),
+                    dim=-1
                 )
                 generators_categorical = dist.Categorical(selection_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
