@@ -246,9 +246,8 @@ class CartesianCategory(pyro.nn.PyroModule):
                            self.arrow_weight_betas).to_event(1)
             )
 
-        probs = self.diffusion_counts() + self.weights_matrix(arrow_weights)
-
-        return self.sample_morphism(obj, probs, temperature, min_depth, infer)
+        weights = self.diffusion_counts() + self.weights_matrix(arrow_weights)
+        return self.sample_morphism(obj, weights, temperature, min_depth, infer)
 
     def draw(self, skip_edges=[], filename=None):
         arrow_weights = dist.Beta(self.arrow_weight_alphas,
