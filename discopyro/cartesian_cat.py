@@ -16,7 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from . import closed
-from . import util
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
@@ -147,7 +146,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                 not isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def diffusion_probs(self):
+    def diffusion_counts(self):
         adjacency = nx.to_numpy_matrix(self._graph)
         return torch.from_numpy(scipy.linalg.expm(adjacency)).to(
             self.temperature_alpha
@@ -155,31 +154,21 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
-        weights = torch.ones(len(self._graph), len(self._graph),
-                             device=arrow_weights.device)
+        weights = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
+            arrow_weights
+        )
 
-        row_indices = []
-        column_indices = []
-        ws = []
         for arrow in self.ars:
-            cod = arrow.typed_cod
-
-            row_indices.append(self._graph.nodes[arrow]['index'])
-            column_indices.append(self._graph.nodes[cod]['index'])
             k = self._graph.nodes[arrow]['arrow_index']
-            ws.append(arrow_weights[k])
+            weights = weights.index_put((torch.LongTensor([k]),),
+                                        weights[k] * arrow_weights[k])
 
         for macro in self.macros:
-            cod = list(self._graph.successors(macro))[0]
-
-            row_indices.append(self._graph.nodes[macro]['index'])
-            column_indices.append(self._graph.nodes[cod]['index'])
             k = self._graph.nodes[macro]['arrow_index']
-            ws.append(arrow_weights[k])
+            weights = weights.index_put((torch.LongTensor([k]),),
+                                        weights[k] * arrow_weights[k])
 
-        return weights.index_put((torch.LongTensor(row_indices),
-                                  torch.LongTensor(column_indices)),
-                                 torch.stack(ws, dim=0))
+        return weights
 
     @pnn.pyro_method
     def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
@@ -212,8 +201,9 @@ class CartesianCategory(pyro.nn.PyroModule):
 
                 dest_probs = probs[gens][:, dest_index]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
-                selection_probs = util.soften_probabilities(
-                    dest_probs[viables], temperature, -1, None
+                selection_probs = F.softmax(
+                    dest_probs[viables].log() / (temperature + 1e-10),
+                    dim=-1
                 )
                 generators_categorical = dist.Categorical(selection_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
@@ -256,9 +246,8 @@ class CartesianCategory(pyro.nn.PyroModule):
                            self.arrow_weight_betas).to_event(1)
             )
 
-        probs = self.diffusion_probs() + self.weights_matrix(arrow_weights)
-
-        return self.sample_morphism(obj, probs, temperature, min_depth, infer)
+        weights = self.diffusion_counts() + self.weights_matrix(arrow_weights)
+        return self.sample_morphism(obj, weights, temperature, min_depth, infer)
 
     def draw(self, skip_edges=[], filename=None):
         arrow_weights = dist.Beta(self.arrow_weight_alphas,
