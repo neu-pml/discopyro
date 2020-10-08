@@ -1,13 +1,15 @@
 import collections
 from discopy import Ty
+from discopy.cartesian import Id
 import functools
 from indexed import IndexedOrderedDict
+import matplotlib.pyplot as plt
 import networkx as nx
 import pyro
 from pyro.contrib.autoname import name_count
 import pyro.distributions as dist
 import pyro.nn as pnn
-import pytorch_expm.expm_taylor as expm
+import scipy.linalg
 import torch
 import torch.distributions.constraints as constraints
 import torch.nn as nn
@@ -21,14 +23,15 @@ class CartesianCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
+        self._add_object(closed.TOP)
         for i, gen in enumerate(generators):
             assert isinstance(gen, closed.TypedBox)
 
             if gen.typed_dom not in self._graph:
-                self._graph.add_node(gen.typed_dom, index=len(self._graph))
+                self._add_object(gen.typed_dom)
             self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
             if gen.typed_cod not in self._graph:
-                self._graph.add_node(gen.typed_cod, index=len(self._graph))
+                self._add_object(gen.typed_cod)
             self._graph.add_edge(gen.typed_dom, gen)
             self._graph.add_edge(gen, gen.typed_cod)
 
@@ -41,59 +44,84 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         for i, obj in enumerate(self.obs):
             self._graph.nodes[obj]['object_index'] = i
-            self._graph.nodes[obj]['global_elements'] = []
 
-        for elem in global_elements:
+        for i, elem in enumerate(global_elements):
             assert isinstance(elem, closed.TypedBox)
             assert elem.typed_dom == closed.TOP
-            elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
-                                         elem.typed_cod, elem.function,
-                                         lambda *args: None)
+            if not isinstance(elem, closed.TypedDaggerBox):
+                elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
+                                             elem.typed_cod, elem.function,
+                                             lambda *args: ())
+
+            self._graph.add_node(elem, index=len(self._graph),
+                                 arrow_index=len(generators) + i)
+            self._graph.add_edge(closed.TOP, elem)
+            self._graph.add_edge(elem, elem.typed_cod)
 
             if isinstance(elem.function, nn.Module):
-                i = self._graph.nodes[elem.typed_cod]['object_index']
-                k = len(self._graph.nodes[elem.typed_cod]['global_elements'])
-                self.add_module('global_element_%d_%d' % (i, k), elem.function)
-            self._graph.nodes[elem.typed_cod]['global_elements'].append(elem)
+                self.add_module('global_element_%d' % i, elem.function)
+            dagger = elem.dagger()
+            if isinstance(dagger.function, nn.Module):
+                self.add_module('global_element_%d_dagger' % i, dagger.function)
 
-        max_elements = max([len(self._graph.nodes[obj]['global_elements'])
-                            for obj in self.obs])
-        self.global_element_weights = pnn.PyroParam(
-            torch.ones(len(self.obs), max_elements),
+        for i, obj in enumerate(self.compound_obs):
+            if obj._key == closed.CartesianClosed._Key.ARROW:
+                src, dest = obj.arrow()
+                def macro(probs, temp, min_depth, infer, l=src, r=dest):
+                    return self.path_between(l, r, probs, temp, min_depth,
+                                             infer)
+            elif obj._key == closed.CartesianClosed._Key.BASE:
+                def macro(probs, temp, min_depth, infer, obj=obj):
+                    return self.product_arrow(obj, probs, temp, min_depth,
+                                              infer)
+
+            arrow_index = len(generators) + len(global_elements) + i
+            self._graph.add_node(macro, index=len(self._graph),
+                                 arrow_index=arrow_index)
+            self._graph.add_edge(closed.TOP, macro)
+            self._graph.add_edge(macro, obj)
+
+        self.arrow_weight_alphas = pnn.PyroParam(
+            torch.ones(len(self.ars) + len(self.macros)),
             constraint=constraints.positive
         )
-        self.arrow_distances = pnn.PyroParam(torch.ones(len(self.ars)),
-                                             constraint=constraints.positive)
-        self.confidence_alpha = pnn.PyroParam(torch.ones(1),
+        self.arrow_weight_betas = pnn.PyroParam(
+            torch.ones(len(self.ars) + len(self.macros)),
+            constraint=constraints.positive
+        )
+        self.temperature_alpha = pnn.PyroParam(torch.ones(1),
+                                               constraint=constraints.positive)
+        self.temperature_beta = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
-        self.confidence_beta = pnn.PyroParam(torch.ones(1),
-                                             constraint=constraints.positive)
+
+    def _add_object(self, obj):
+        if obj in self._graph:
+            return
+        if obj.is_compound():
+            if len(obj) > 1:
+                for ty in obj.base():
+                    if not isinstance(ty, closed.CartesianClosed):
+                        ty = closed.wrap_base_ob(ty)
+                    self._add_object(ty)
+            else:
+                dom, cod = obj.arrow()
+                self._add_object(dom)
+                self._add_object(cod)
+        self._graph.add_node(obj, index=len(self._graph))
 
     @property
     def param_shapes(self):
-        return (self.global_element_weights.shape, self.arrow_distances.shape,
-                self.confidence_alpha.shape * 2)
+        return (self.arrow_weights.shape, self.temperature_alpha.shape * 2)
 
-    def _object_generators(self, obj, forward=True, arrow_distances=None):
-        if arrow_distances is None:
-            arrow_distances = self.arrow_distances
+    def _object_generators(self, obj, forward=True):
         edges = self._graph.out_edges if forward else self._graph.in_edges
         dir_index = 1 if forward else 0
         generators = []
-        arrow_indices = []
         for edge in edges(obj):
             gen = edge[dir_index]
-            generators.append(gen)
-            arrow_indices.append(self._graph.nodes[gen]['arrow_index'])
-        return generators, arrow_distances[arrow_indices]
-
-    def _object_elements(self, obj, global_element_weights=None):
-        if global_element_weights is None:
-            global_element_weights = self.global_element_weights
-        index = self._graph.nodes[obj]['object_index']
-        elements = self._graph.nodes[obj]['global_elements']
-        weights = global_element_weights[index, :len(elements)]
-        return elements, weights
+            counterpart = list(edges(gen))[0][dir_index]
+            generators.append((gen, counterpart))
+        return generators
 
     @property
     def obs(self):
@@ -101,124 +129,168 @@ class CartesianCategory(pyro.nn.PyroModule):
                 if isinstance(node, closed.CartesianClosed)]
 
     @property
+    def compound_obs(self):
+        for obj in self.obs:
+            if obj.is_compound():
+                yield obj
+
+    @property
     def ars(self):
         return [node for node in self._graph
                 if isinstance(node, closed.TypedBox)]
 
-    @pnn.pyro_method
-    def diffusion_distances(self, arrow_distances=None):
-        if arrow_distances is None:
-            arrow_distances = self.arrow_distances
-        transitions = arrow_distances.new_zeros([len(self._graph)] * 2)
+    @property
+    def macros(self):
+        return [node for node in self._graph if\
+                not isinstance(node, closed.CartesianClosed) and\
+                not isinstance(node, closed.TypedBox)]
 
-        row_indices = []
-        column_indices = []
-        distances = []
+    @pnn.pyro_method
+    def diffusion_counts(self):
+        adjacency = nx.to_numpy_matrix(self._graph)
+        return torch.from_numpy(scipy.linalg.expm(adjacency)).to(
+            self.temperature_alpha
+        )
+
+    @pnn.pyro_method
+    def weights_matrix(self, arrow_weights):
+        weights = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
+            arrow_weights
+        )
+
         for arrow in self.ars:
-            dom, cod = arrow.typed_dom, arrow.typed_cod
-
-            row_indices.append(self._graph.nodes[dom]['index'])
-            column_indices.append(self._graph.nodes[arrow]['index'])
             k = self._graph.nodes[arrow]['arrow_index']
-            distances.append(-arrow_distances[k])
+            weights = weights.index_put((torch.LongTensor([k]),),
+                                        weights[k] * arrow_weights[k])
 
-            row_indices.append(self._graph.nodes[arrow]['index'])
-            column_indices.append(self._graph.nodes[cod]['index'])
-            distances.append(-arrow_distances.new_ones(1))
+        for macro in self.macros:
+            k = self._graph.nodes[macro]['arrow_index']
+            weights = weights.index_put((torch.LongTensor([k]),),
+                                        weights[k] * arrow_weights[k])
 
-        transitions = transitions.index_put((torch.LongTensor(row_indices),
-                                             torch.LongTensor(column_indices)),
-                                            torch.stack(distances, dim=0).exp())
-        transitions = transitions / transitions.sum(dim=1, keepdim=True)
-        diffusions = expm.expm(transitions.unsqueeze(0)).squeeze(0)
-        return -torch.log(diffusions)
+        return weights
 
     @pnn.pyro_method
-    def product_arrow(self, ty, depth=0, min_depth=0, infer={},
-                      confidence=None, params=NONE_DEFAULT):
-        entries = [self.forward(closed.wrap_base_ob(obj), depth + 1, min_depth,
-                                infer, confidence, params)
-                   for obj in ty.objects]
-        return functools.reduce(lambda f, g: f.tensor(g), entries)
+    def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
+        ty = obj.base()
+        product = None
+        for ob in ty.objects:
+            entry = self.sample_morphism(ob, probs, temperature + 1, min_depth,
+                                         infer)
+            if product is None:
+                product = entry
+            else:
+                product = product @ entry
+        return product
 
     @pnn.pyro_method
-    def path_between(self, src, dest, confidence, min_depth=0, infer={},
-                     params=NONE_DEFAULT):
-        assert src != closed.TOP
+    def path_between(self, src, dest, probs, temperature, min_depth=0,
+                     infer={}):
         assert dest != closed.TOP
 
         location = src
-        distances = self.diffusion_distances(params['arrow_distances'])
-
-        path = []
+        path = Id(len(src))
+        dest_index = self._graph.nodes[dest]['index']
         with pyro.markov():
-            while location != dest and len(path) < min_depth:
-                generators, _ = self._object_generators(
-                    location, True, params['arrow_distances']
+            while location != dest:
+                generators = self._object_generators(location, True)
+                if len(path) + 1 < min_depth:
+                    generators = [(g, cod) for (g, cod) in generators
+                                  if cod != dest]
+                gens = [self._graph.nodes[g]['index'] for (g, _) in generators]
+
+                dest_probs = probs[gens][:, dest_index]
+                viables = dest_probs.nonzero(as_tuple=True)[0]
+                selection_probs = F.softmax(
+                    dest_probs[viables].log() / (temperature + 1e-10),
+                    dim=-1
                 )
-                gen_indices = [(self._graph.nodes[g]['index'],
-                                self._graph.nodes[dest]['index'])
-                               for g in generators]
-                distances_to_dest = distances[gen_indices]
-                generators_categorical = dist.Categorical(
-                    probs=F.softmin(confidence * distances_to_dest, dim=0)
-                ).to_event(0)
+                generators_categorical = dist.Categorical(selection_probs)
                 g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
-                                    generators_categorical, infer=infer)
-                path.append(generators[g_idx.item()])
+                                    generators_categorical.to_event(0),
+                                    infer=infer)
 
-        return functools.reduce(lambda f, g: f >> g, path)
+                gen, cod = generators[viables[g_idx.item()]]
+                if isinstance(gen, closed.TypedBox):
+                    morphism = gen
+                else:
+                    morphism = gen(probs, temperature,
+                                   min_depth - len(path) - 1, infer)
+                path = path >> morphism
+                location = cod
 
-    def forward(self, obj, depth=0, min_depth=0, infer={}, confidence=None,
-                params=NONE_DEFAULT):
+        return path
+
+    def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
         with name_count():
-            if confidence is None:
-                confidence = pyro.sample(
-                    'distances_confidence',
-                    dist.Gamma(self.confidence_alpha,
-                               self.confidence_beta).to_event(0)
-                )
+            entries = closed.unfold_arrow(obj)
+            if len(entries) == 1:
+                return self.path_between(closed.TOP, obj, probs, temperature,
+                                         min_depth, infer)
+            src, dest = closed.fold_product(entries[:-1]), entries[-1]
+            return self.path_between(src, dest, probs, temperature, min_depth,
+                                     infer)
 
-            generators, distances = self._object_generators(
-                obj, False, params['arrow_distances']
+    def forward(self, obj, min_depth=2, infer={}, temperature=None,
+                arrow_weights=None):
+        if temperature is None:
+            temperature = pyro.sample(
+                'weights_temperature',
+                dist.Gamma(self.temperature_alpha,
+                           self.temperature_beta).to_event(0)
             )
-            if obj.is_compound():
-                generators.append(None)
-                distances = torch.cat((distances, distances.new_ones(1)), dim=0)
-            if depth >= min_depth:
-                elements, weights = self._object_elements(
-                    obj, params['global_element_weights']
-                )
-                generators = generators + elements
-                distances = torch.cat((distances + depth, -weights),
-                                      dim=0)
-
-            generators_cat = dist.Categorical(
-                probs=F.softmin(distances * confidence, dim=0)
+        if arrow_weights is None:
+            arrow_weights = pyro.sample(
+                'arrow_weights',
+                dist.Gamma(self.arrow_weight_alphas,
+                           self.arrow_weight_betas).to_event(1)
             )
-            g_idx = pyro.sample('generator_{-> %s}' % obj, generators_cat,
-                                infer=infer)
-            generator = generators[g_idx.item()]
 
-            if generator is None:
-                result = obj.match(
-                    base=lambda ty: self.product_arrow(ty, depth, min_depth,
-                                                       infer, confidence,
-                                                       params),
-                    var=lambda v: closed.UnificationException(None, None, v),
-                    arrow=lambda l, r: self.path_between(l, r, confidence,
-                                                         min_depth=min_depth,
-                                                         params=params)
-                )
-            elif generator.typed_dom == closed.TOP and depth >= min_depth:
-                result = generator
-            else:
-                predecessor = self.forward(generator.typed_dom, depth + 1,
-                                           min_depth, infer,
-                                           confidence=confidence, params=params)
-                result = predecessor >> generator
+        weights = self.diffusion_counts() + self.weights_matrix(arrow_weights)
+        return self.sample_morphism(obj, weights, temperature, min_depth, infer)
 
-            return result
+    def draw(self, skip_edges=[], filename=None):
+        arrow_weights = dist.Beta(self.arrow_weight_alphas,
+                                  self.arrow_weight_betas).mean
+
+        skeleton = nx.MultiDiGraph()
+        for obj in self.obs:
+            skeleton.add_node(obj)
+        arrow_edges = []
+        arrow_labels = {}
+        for arrow in self.ars:
+            u, v = arrow.type.arrow()
+            if (u, v) in skip_edges:
+                continue
+            k = self._graph.nodes[arrow]['arrow_index']
+            skeleton.add_edge(u, v, arrow, weight=arrow_weights[k])
+            arrow_edges.append((u, v))
+            arrow_labels[(u, v)] = arrow.name
+        macro_edges = []
+        for macro in self.macros:
+            u = list(self._graph.predecessors(macro))[0]
+            v = list(self._graph.successors(macro))[0]
+            if (u, v) in skip_edges:
+                continue
+            k = self._graph.nodes[macro]['arrow_index']
+            skeleton.add_edge(u, v, weight=arrow_weights[k])
+            macro_edges.append((u, v))
+
+        pos = nx.spring_layout(skeleton, k=10, weight='weight')
+        nx.draw_networkx_nodes(skeleton, pos, node_size=700)
+        nx.draw_networkx_edges(skeleton, pos, node_size=700,
+                               edgelist=arrow_edges, width=2, edge_color='gray',
+                               alpha=0.75)
+        nx.draw_networkx_edges(skeleton, pos, node_size=700,
+                               edgelist=macro_edges, edge_color='gray',
+                               alpha=0.5)
+        nx.draw_networkx_labels(skeleton, pos, font_size=12,
+                                labels={obj: '$%s$' % str(obj) for obj
+                                        in self.obs})
+        plt.axis("off")
+        if filename:
+            plt.savefig(filename)
+        plt.show()
 
     def resume_from_checkpoint(self, resume_path):
         """

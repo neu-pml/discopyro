@@ -1,7 +1,7 @@
 from adt import adt, Case
 from discopy import messages, Ob, Ty
 from discopy.cartesian import Box
-from discopy.cat import AxiomError
+from discopy.cat import Arrow, AxiomError
 import functools
 from typing import Generic, TypeVar
 import uuid
@@ -19,8 +19,8 @@ class Closed(Generic[T], Ob):
 
     def _pretty(self, parenthesize=False):
         result = self.match(
-            base=lambda ob: str(ob),
-            var=lambda name: name,
+            base=str,
+            var=lambda name: 'Var(%s)' % name,
             arrow=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
         )
         if parenthesize and self._key == Closed._Key.ARROW:
@@ -37,15 +37,57 @@ class Closed(Generic[T], Ob):
     def __str__(self):
         return self._pretty()
 
+def pretty_tuple_type(ty):
+    if not ty.objects:
+        return '\\top'
+    return ' \\times '.join([str(obj) for obj in ty.objects])
+
 class CartesianClosed(Closed[Ty]):
     def is_compound(self):
         is_arrow = self._key == Closed._Key.ARROW
         is_product = self._key == Closed._Key.BASE and len(self.base()) > 1
         return is_arrow or is_product
 
+    def tensor(self, other):
+        if self == TOP and other == TOP:
+            return TOP
+        if self == TOP:
+            return other
+        if other == TOP:
+            return self
+        return CartesianClosed.BASE(Ty(self, other))
+
+    def __matmul__(self, other):
+        return self.tensor(other)
+
+    def _pretty(self, parenthesize=False):
+        result = self.match(
+            base=lambda ty: pretty_tuple_type(ty),
+            var=lambda name: 'Var(%s)' % name,
+            arrow=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
+        )
+        if parenthesize and self._key == Closed._Key.ARROW:
+            result = '(%s)' % result
+        return result
+
+    def base_elements(self):
+        def ty_base_elements(ty):
+            return set().union(*[t.base_elements() for t in ty
+                                 if isinstance(t, CartesianClosed)]) |\
+                   {t for t in ty if not isinstance(t, CartesianClosed)}
+        return self.match(
+            base=ty_base_elements,
+            var=lambda name: set(CartesianClosed.VAR(name)),
+            arrow=lambda l, r: l.base_elements() | r.base_elements()
+        )
+
 TOP = CartesianClosed.BASE(Ty())
 
 def wrap_base_ob(ob):
+    if isinstance(ob, CartesianClosed):
+        return ob
+    if isinstance(ob, Ty):
+        return CartesianClosed.BASE(ob)
     return CartesianClosed.BASE(Ty(ob))
 
 def unique_identifier():
@@ -99,7 +141,7 @@ def try_unify(a, b, subst={}):
         l, lsub = try_unify(la, lb)
         r, rsub = try_unify(ra, rb)
         subst = try_merge_substitution(lsub, rsub)
-        return Closed.ARROW(l, r), subst
+        return a.__class__.ARROW(l, r), subst
     raise UnificationException(a, b)
 
 def unify(a, b, substitution={}):
@@ -126,7 +168,7 @@ def substitute(t, sub):
 def fold_arrow(ts):
     if len(ts) == 1:
         return ts[-1]
-    return fold_arrow(ts[:-2] + [Closed.ARROW(ts[-2], ts[-1])])
+    return fold_arrow(ts[:-2] + [ts[-1].__class__.ARROW(ts[-2], ts[-1])])
 
 def unfold_arrow(arrow):
     return arrow.match(
@@ -134,6 +176,14 @@ def unfold_arrow(arrow):
         var=lambda v: [CartesianClosed.VAR(v)],
         arrow=lambda l, r: [l] + unfold_arrow(r)
     )
+
+def fold_product(ts):
+    if len(ts) == 1:
+        return ts[0]
+    return CartesianClosed.BASE(Ty(*ts))
+
+def unfold_product(ty):
+    return [wrap_base_ob(obj) for obj in ty.objects]
 
 class TypedBox(Box):
     def __init__(self, name, dom, cod, function=None):
@@ -180,8 +230,9 @@ class TypedBox(Box):
 
 class TypedDaggerBox(TypedBox):
     def __init__(self, name, dom, cod, function=None, dagger_function=None,
-                 is_dagger=False):
+                 dagger_name=None, is_dagger=False):
         self._dagger_function = dagger_function
+        self._dagger_name = dagger_name
         self._dagger = is_dagger
         super().__init__(name, dom, cod, function)
 
@@ -190,13 +241,17 @@ class TypedDaggerBox(TypedBox):
         return self._dagger
 
     def dagger(self):
-        return TypedDaggerBox(self.name, self.typed_cod, self.typed_dom,
-                              self._dagger_function, self._function,
+        if self._dagger_name:
+            dagger_name = self._dagger_name
+        else:
+            dagger_name = self.name + "$^\\dagger$"
+        return TypedDaggerBox(dagger_name, self.typed_cod, self.typed_dom,
+                              self._dagger_function, self._function, self.name,
                               not self._dagger)
 
     def __repr__(self):
         if self.is_dagger:
-            return repr(self.dagger()) + ".dagger()"
+            return repr(self.dagger()) + "$^\\dagger$"
         dom, cod = self.type.arrow()
         function_rep = repr(self.function) if self.function else ''
         return "TypedDaggerBox(name={}, dom={}, cod={}, function={})".format(
@@ -207,11 +262,12 @@ class TypedDaggerBox(TypedBox):
         if isinstance(other, TypedBox):
             basics = all(self.__getattribute__(x) == other.__getattribute__(x)
                          for x in ['name', 'dom', 'cod', 'function',
-                                   '_dagger_function', '_dagger'])
+                                   '_dagger_function', '_dagger_name',
+                                   '_dagger'])
             subst = unifier(self.typed_dom, other.typed_dom)
             subst = unifier(self.typed_cod, other.typed_cod, subst)
             return basics and subst is not None
-        if isinstance(other, Arrow):
+        elif isinstance(other, Arrow):
             return len(other) == 1 and other[0] == self
         return False
 
