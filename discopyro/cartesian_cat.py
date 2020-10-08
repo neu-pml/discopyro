@@ -223,10 +223,10 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
         with name_count():
-            entries = closed.unfold_arrow(obj)
-            if len(entries) == 1:
+            if obj in self._graph.nodes:
                 return self.path_between(closed.TOP, obj, probs, temperature,
                                          min_depth, infer)
+            entries = closed.unfold_arrow(obj)
             src, dest = closed.fold_product(entries[:-1]), entries[-1]
             return self.path_between(src, dest, probs, temperature, min_depth,
                                      infer)
