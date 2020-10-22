@@ -94,9 +94,25 @@ class CartesianCategory(pyro.nn.PyroModule):
         self.temperature_beta = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
 
+        adjacency_weights = nx.to_numpy_matrix(self._graph)
+        for arrow in self.ars:
+            i = self._graph.nodes[arrow]['index']
+            adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
         self.register_buffer('diffusion_counts', torch.from_numpy(
-            scipy.linalg.expm(nx.to_numpy_matrix(self._graph))
+            scipy.linalg.expm(adjacency_weights)
         ))
+
+    def _arrow_parameters(self, arrow):
+        params = 0
+        if isinstance(arrow.function, nn.Module):
+            for parameter in arrow.function.parameters():
+                params += parameter.numel()
+        if isinstance(arrow, closed.TypedDaggerBox):
+            dagger = arrow.dagger()
+            if isinstance(dagger.function, nn.Module):
+                for parameter in dagger.function.parameters():
+                    params += parameter.numel()
+        return params
 
     def _add_object(self, obj):
         if obj in self._graph:
