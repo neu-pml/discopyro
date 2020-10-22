@@ -159,14 +159,16 @@ class CartesianCategory(pyro.nn.PyroModule):
         )
 
         for arrow in self.ars:
+            i = self._graph.nodes[arrow]['index']
             k = self._graph.nodes[arrow]['arrow_index']
-            weights = weights.index_put((torch.LongTensor([k]),),
-                                        weights[k] * arrow_weights[k])
+            weights = weights.index_put((torch.LongTensor([i]),),
+                                        weights[i] * arrow_weights[k])
 
         for macro in self.macros:
+            i = self._graph.nodes[macro]['index']
             k = self._graph.nodes[macro]['arrow_index']
-            weights = weights.index_put((torch.LongTensor([k]),),
-                                        weights[k] * arrow_weights[k])
+            weights = weights.index_put((torch.LongTensor([i]),),
+                                        weights[i] * arrow_weights[k])
 
         return weights
 
