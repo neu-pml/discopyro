@@ -94,6 +94,26 @@ class CartesianCategory(pyro.nn.PyroModule):
         self.temperature_beta = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
 
+        adjacency_weights = nx.to_numpy_matrix(self._graph)
+        for arrow in self.ars:
+            i = self._graph.nodes[arrow]['index']
+            adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
+        self.register_buffer('diffusion_counts', torch.from_numpy(
+            scipy.linalg.expm(adjacency_weights)
+        ))
+
+    def _arrow_parameters(self, arrow):
+        params = 0
+        if isinstance(arrow.function, nn.Module):
+            for parameter in arrow.function.parameters():
+                params += parameter.numel()
+        if isinstance(arrow, closed.TypedDaggerBox):
+            dagger = arrow.dagger()
+            if isinstance(dagger.function, nn.Module):
+                for parameter in dagger.function.parameters():
+                    params += parameter.numel()
+        return params
+
     def _add_object(self, obj):
         if obj in self._graph:
             return
@@ -146,27 +166,22 @@ class CartesianCategory(pyro.nn.PyroModule):
                 not isinstance(node, closed.TypedBox)]
 
     @pnn.pyro_method
-    def diffusion_counts(self):
-        adjacency = nx.to_numpy_matrix(self._graph)
-        return torch.from_numpy(scipy.linalg.expm(adjacency)).to(
-            self.temperature_alpha
-        )
-
-    @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
         weights = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
             arrow_weights
         )
 
         for arrow in self.ars:
+            i = self._graph.nodes[arrow]['index']
             k = self._graph.nodes[arrow]['arrow_index']
-            weights = weights.index_put((torch.LongTensor([k]),),
-                                        weights[k] * arrow_weights[k])
+            weights = weights.index_put((torch.LongTensor([i]),),
+                                        weights[i] * arrow_weights[k])
 
         for macro in self.macros:
+            i = self._graph.nodes[macro]['index']
             k = self._graph.nodes[macro]['arrow_index']
-            weights = weights.index_put((torch.LongTensor([k]),),
-                                        weights[k] * arrow_weights[k])
+            weights = weights.index_put((torch.LongTensor([i]),),
+                                        weights[i] * arrow_weights[k])
 
         return weights
 
@@ -246,7 +261,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                            self.arrow_weight_betas).to_event(1)
             )
 
-        weights = self.diffusion_counts() + self.weights_matrix(arrow_weights)
+        weights = self.diffusion_counts + self.weights_matrix(arrow_weights)
         return self.sample_morphism(obj, weights, temperature, min_depth, infer)
 
     def draw(self, skip_edges=[], filename=None):
