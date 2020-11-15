@@ -1,5 +1,6 @@
 from adt import adt, Case
-from discopy import messages, Ob, Ty
+from discopy import messages
+from discopy.biclosed import Ob, Ty, Under
 from discopy.cartesian import Box
 from discopy.cat import Arrow, AxiomError
 import functools
@@ -41,6 +42,30 @@ def pretty_tuple_type(ty):
     if not ty.objects:
         return '\\top'
     return ' \\times '.join([str(obj) for obj in ty.objects])
+
+def pretty_type(ty, parenthesize=False):
+    if isinstance(ty, Under):
+        result = '%s >> %s' % (pretty_type(ty.left, True),
+                               pretty_type(ty.right))
+        if parenthesize:
+            result = '(%s)' % result
+    else:
+        if not ty.objects:
+            result = '\\top'
+        result = ' \\times '.join([str(obj) for obj in ty.objects])
+    return result
+
+def type_compound(ty):
+    return isinstance(ty, Under) or len(ty) > 1
+
+def base_elements(ty):
+    if not isinstance(ty, Ty):
+        return Ty(ty)
+    if isinstance(ty, Under):
+        return base_elements(ty.left) | base_elements(ty.right)
+    bases = {ob for ob in ty.objects if not isinstance(ob, Under)}
+    recursives = set().union(*[base_elements(ob) for ob in ty.objects])
+    return bases | recursives
 
 class CartesianClosed(Closed[Ty]):
     def is_compound(self):
@@ -92,6 +117,9 @@ def wrap_base_ob(ob):
 
 def unique_identifier():
     return uuid.uuid4().hex[:7]
+
+def unique_ty():
+    return Ty(unique_identifier())
 
 def unique_closed():
     return Closed.BASE(Ob(unique_identifier()))
