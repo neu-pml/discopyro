@@ -109,7 +109,7 @@ class CartesianClosed(Closed[Ty]):
             arrow=lambda l, r: l.base_elements() | r.base_elements()
         )
 
-TOP = CartesianClosed.BASE(Ty())
+TOP = Ty()
 
 def wrap_base_ob(ob):
     if isinstance(ob, CartesianClosed):
