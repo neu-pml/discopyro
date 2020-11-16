@@ -1,16 +1,9 @@
-from discopy.biclosed import Box, Diagram
-from discopy.cartesian import Function, PythonFunctor
+from discopy.biclosed import Box, Diagram, Functor
+from discopy.cartesian import Function
 from discopy.cat import Arrow
 from discopy.rigid import PRO
 
 from . import unification
-
-_PYTHON_FUNCTOR = PythonFunctor(
-    ob=lambda t: PRO(len(t)),
-    ar=lambda f: Function(len(f.dom), len(f.cod), f.function)
-)
-
-Diagram.__call__ = lambda self, *values: _PYTHON_FUNCTOR(self)(*values)
 
 class CallableBox(Box):
     def __init__(self, name, dom, cod, function=None, data=None, _dagger=False):
@@ -76,3 +69,28 @@ class CallableDaggerBox(CallableBox):
 
     def __hash__(self):
         return hash(repr(self))
+
+class DaggerFunction(Function):
+    def __init__(self, dom, cod, function, dagger_function):
+        self._dagger_function = dagger_function
+        super().__init__(dom, cod, function)
+
+    def dagger(self):
+        return type(self)(self.cod, self.dom, self._dagger_function,
+                          self.function)
+
+def functionize(f):
+    if not isinstance(f, CallableBox):
+        import pdb; pdb.set_trace()
+    if isinstance(f, CallableDaggerBox):
+        dagger_function = f.dagger().function
+        return DaggerFunction(len(f.dom), len(f.cod), f.function,
+                              dagger_function)
+    return Function(len(f.dom), len(f.cod), f.function)
+
+_PYTHON_FUNCTOR = Functor(
+    ob=lambda t: PRO(len(t)), ar=functionize,
+    ob_factory=PRO, ar_factory=Function
+)
+
+Diagram.__call__ = lambda self, *values: _PYTHON_FUNCTOR(self)(*values)
