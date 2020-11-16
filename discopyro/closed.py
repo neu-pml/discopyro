@@ -7,6 +7,10 @@ import functools
 from typing import Generic, TypeVar
 import uuid
 
+class TyVar(Ty):
+    def __init__(self, name):
+        super().__init__(name)
+
 T = TypeVar('T', bound=Ob)
 
 @adt
@@ -150,7 +154,12 @@ def try_merge_substitution(lsub, rsub):
     return subst
 
 def try_unify(a, b, subst={}):
-    if isinstance(a, Ty) and isinstance(b, Ty):
+    if isinstance(a, Under) and isinstance(b, Under):
+        l, lsub = try_unify(a.left, b.left)
+        r, rsub = try_unify(a.right, b.right)
+        subst = try_merge_substitution(lsub, rsub)
+        return l >> r, subst
+    if a.objects and b.objects:
         results = [try_unify(ak, bk) for ak, bk in zip(a.objects, b.objects)]
         ty = Ty(*[ty for ty, _ in results])
         subst = functools.reduce(try_merge_substitution,
@@ -158,18 +167,10 @@ def try_unify(a, b, subst={}):
         return ty, subst
     if a == b:
         return a, {}
-    if a._key == Closed._Key.VAR:
-        return b, {a.var(): b}
-    if b._key == Closed._Key.VAR:
-        return a, {b.var(): a}
-    if a._key == Closed._Key.ARROW and\
-       b._key == Closed._Key.ARROW:
-        (la, ra) = a.arrow()
-        (lb, rb) = b.arrow()
-        l, lsub = try_unify(la, lb)
-        r, rsub = try_unify(ra, rb)
-        subst = try_merge_substitution(lsub, rsub)
-        return a.__class__.ARROW(l, r), subst
+    if isinstance(a, TyVar):
+        return b, {a.name: b}
+    if isinstance(b, TyVar):
+        return a, {b.name: a}
     raise UnificationException(a, b)
 
 def unify(a, b, substitution={}):
@@ -187,31 +188,33 @@ def unifier(a, b, substitution={}):
         return None
 
 def substitute(t, sub):
-    return t.match(
-        base=Closed.BASE,
-        var=lambda m: sub[m] if m in sub else Closed.VAR(m),
-        arrow=lambda l, r: Closed.ARROW(substitute(l, sub), substitute(r, sub))
-    )
+    if isinstance(t, Under):
+        return substitute(t.left, sub) >> substitute(t.right, sub)
+    if t.objects:
+        return Ty(*[substitute(ty, sub) for ty in t.objects])
+    if isinstance(t, TyVar) and t.name in sub:
+        return sub[t.name]
+    return t
 
 def fold_arrow(ts):
     if len(ts) == 1:
         return ts[-1]
-    return fold_arrow(ts[:-2] + [ts[-1].__class__.ARROW(ts[-2], ts[-1])])
+    return fold_arrow(ts[:-2] + [ts[-2] >> ts[-1]])
 
 def unfold_arrow(arrow):
-    return arrow.match(
-        base=lambda ob: [CartesianClosed.BASE(ob)],
-        var=lambda v: [CartesianClosed.VAR(v)],
-        arrow=lambda l, r: [l] + unfold_arrow(r)
-    )
+    if isinstance(arrow, Under):
+        return [arrow.left] + unfold_arrow(arrow.right)
+    return [arrow]
 
 def fold_product(ts):
     if len(ts) == 1:
         return ts[0]
-    return CartesianClosed.BASE(Ty(*ts))
+    return Ty(*ts)
 
 def unfold_product(ty):
-    return [wrap_base_ob(obj) for obj in ty.objects]
+    if isinstance(ty, Under):
+        return [ty]
+    return [Ty(ob) for ob in ty.objects]
 
 class TypedBox(Box):
     def __init__(self, name, dom, cod, function=None):
