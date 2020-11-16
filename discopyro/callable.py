@@ -12,7 +12,7 @@ _PYTHON_FUNCTOR = PythonFunctor(
 
 Diagram.__call__ = lambda self, *values: _PYTHON_FUNCTOR(self)(*values)
 
-class CallableBox(Box, CallableDiagram):
+class CallableBox(Box):
     def __init__(self, name, dom, cod, function=None, data=None, _dagger=False):
         self._function = function
         super().__init__(name, dom, cod, data, _dagger=_dagger)
