@@ -218,8 +218,7 @@ def unfold_product(ty):
 
 class TypedBox(Box):
     def __init__(self, name, dom, cod, function=None):
-        self._type = fold_arrow([dom, cod])
-        super().__init__(name, len(dom), len(cod), function)
+        super().__init__(name, dom, cod, function)
 
     @property
     def type(self):
@@ -228,21 +227,20 @@ class TypedBox(Box):
 
         :return: A CartesianClosed for the arrow's type
         """
-        return self._type
+        return self.dom >> self.cod
 
     @property
     def typed_dom(self):
-        return self.type.arrow()[0]
+        return self.dom
 
     @property
     def typed_cod(self):
-        return self.type.arrow()[1]
+        return self.cod
 
     def __repr__(self):
-        dom, cod = self.type.arrow()
         function_rep = repr(self.function) if self.function else ''
         return "TypedBox(name={}, dom={}, cod={}, function={})".format(
-            repr(self.name), dom, cod, function_rep
+            repr(self.name), self.dom, self.cod, function_rep
         )
 
     def __eq__(self, other):
