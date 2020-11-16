@@ -18,7 +18,7 @@ from . import callable, unification
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
-class CartesianCategory(pyro.nn.PyroModule):
+class FreeCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
