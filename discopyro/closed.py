@@ -280,10 +280,9 @@ class TypedDaggerBox(TypedBox):
     def __repr__(self):
         if self.is_dagger:
             return repr(self.dagger()) + "$^\\dagger$"
-        dom, cod = self.type.arrow()
         function_rep = repr(self.function) if self.function else ''
         return "TypedDaggerBox(name={}, dom={}, cod={}, function={})".format(
-            repr(self.name), dom, cod, function_rep
+            repr(self.name), self.dom, self.cod, function_rep
         )
 
     def __eq__(self, other):
