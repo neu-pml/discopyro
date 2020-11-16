@@ -56,8 +56,6 @@ class CallableDaggerBox(CallableBox):
         )
 
     def __repr__(self):
-        if self.is_dagger:
-            return repr(self.dagger()) + "$^\\dagger$"
         function_rep = repr(self.function) if self.function else ''
         return "CallableDaggerBox(name={}, dom={}, cod={}, function={})".format(
             repr(self.name), self.dom, self.cod, function_rep
