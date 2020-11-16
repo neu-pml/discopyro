@@ -26,13 +26,13 @@ class CartesianCategory(pyro.nn.PyroModule):
         for i, gen in enumerate(generators):
             assert isinstance(gen, callable.CallableBox)
 
-            if gen.typed_dom not in self._graph:
-                self._add_object(gen.typed_dom)
+            if gen.dom not in self._graph:
+                self._add_object(gen.dom)
             self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
-            if gen.typed_cod not in self._graph:
-                self._add_object(gen.typed_cod)
-            self._graph.add_edge(gen.typed_dom, gen)
-            self._graph.add_edge(gen, gen.typed_cod)
+            if gen.cod not in self._graph:
+                self._add_object(gen.cod)
+            self._graph.add_edge(gen.dom, gen)
+            self._graph.add_edge(gen, gen.cod)
 
             if isinstance(gen.function, nn.Module):
                 self.add_module('generator_%d' % i, gen.function)
@@ -46,16 +46,17 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         for i, elem in enumerate(global_elements):
             assert isinstance(elem, callable.CallableBox)
-            assert elem.typed_dom == Ty()
+            assert elem.dom == Ty()
             if not isinstance(elem, callable.CallableDaggerBox):
+                dagger_name = '%s$^{\\dagger}$' % elem.name
                 elem = callable.CallableDaggerBox(elem.name, elem.dom, elem.cod,
                                                   elem.function,
-                                                  lambda *args: ())
+                                                  lambda *args: (), dagger_name)
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
             self._graph.add_edge(Ty(), elem)
-            self._graph.add_edge(elem, elem.typed_cod)
+            self._graph.add_edge(elem, elem.cod)
 
             if isinstance(elem.function, nn.Module):
                 self.add_module('global_element_%d' % i, elem.function)
@@ -199,7 +200,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         assert dest != Ty()
 
         location = src
-        path = Id(len(src))
+        path = Id(src)
         dest_index = self._graph.nodes[dest]['index']
         with pyro.markov():
             while location != dest:
