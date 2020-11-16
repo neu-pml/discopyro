@@ -1,8 +1,7 @@
 from adt import adt, Case
 from discopy import messages
-from discopy.biclosed import Ob, Ty, Under
-from discopy.cartesian import Box
-from discopy.cat import Arrow, AxiomError
+from discopy.biclosed import Box, Ty, Under
+from discopy.cat import Arrow, Ob, AxiomError
 import functools
 from typing import Generic, TypeVar
 import uuid
