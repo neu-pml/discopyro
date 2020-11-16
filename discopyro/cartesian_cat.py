@@ -23,7 +23,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
-        self._add_object(closed.TOP)
+        self._add_object(Ty())
         for i, gen in enumerate(generators):
             assert isinstance(gen, closed.TypedBox)
 
@@ -47,7 +47,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
         for i, elem in enumerate(global_elements):
             assert isinstance(elem, closed.TypedBox)
-            assert elem.typed_dom == closed.TOP
+            assert elem.typed_dom == Ty()
             if not isinstance(elem, closed.TypedDaggerBox):
                 elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
                                              elem.typed_cod, elem.function,
@@ -55,7 +55,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
-            self._graph.add_edge(closed.TOP, elem)
+            self._graph.add_edge(Ty(), elem)
             self._graph.add_edge(elem, elem.typed_cod)
 
             if isinstance(elem.function, nn.Module):
@@ -78,7 +78,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
                                  arrow_index=arrow_index)
-            self._graph.add_edge(closed.TOP, macro)
+            self._graph.add_edge(Ty(), macro)
             self._graph.add_edge(macro, obj)
 
         self.arrow_weight_alphas = pnn.PyroParam(
@@ -201,7 +201,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def path_between(self, src, dest, probs, temperature, min_depth=0,
                      infer={}):
-        assert dest != closed.TOP
+        assert dest != Ty()
 
         location = src
         path = Id(len(src))
@@ -239,7 +239,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
         with name_count():
             if obj in self._graph.nodes:
-                return self.path_between(closed.TOP, obj, probs, temperature,
+                return self.path_between(Ty(), obj, probs, temperature,
                                          min_depth, infer)
             entries = closed.unfold_arrow(obj)
             src, dest = closed.fold_product(entries[:-1]), entries[-1]
