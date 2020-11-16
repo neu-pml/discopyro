@@ -1,6 +1,5 @@
 import collections
-from discopy.biclosed import Ty, Under
-from discopy.cartesian import Id
+from discopy.biclosed import Id, Ty, Under
 import functools
 from indexed import IndexedOrderedDict
 import matplotlib.pyplot as plt
