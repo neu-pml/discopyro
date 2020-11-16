@@ -10,42 +10,6 @@ class TyVar(Ty):
     def __init__(self, name):
         super().__init__(name)
 
-T = TypeVar('T', bound=Ob)
-
-@adt
-class Closed(Generic[T], Ob):
-    BASE: Case[T]
-    VAR: Case[str]
-    ARROW: Case["Closed[T]", "Closed[T]"]
-
-    def __init__(self):
-        super().__init__(self._pretty(False))
-
-    def _pretty(self, parenthesize=False):
-        result = self.match(
-            base=str,
-            var=lambda name: 'Var(%s)' % name,
-            arrow=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
-        )
-        if parenthesize and self._key == Closed._Key.ARROW:
-            result = '(%s)' % result
-        return result
-
-    def __len__(self):
-        return self.match(
-            base=len,
-            var=lambda v: 1,
-            arrow=lambda l, r: 1,
-        )
-
-    def __str__(self):
-        return self._pretty()
-
-def pretty_tuple_type(ty):
-    if not ty.objects:
-        return '\\top'
-    return ' \\times '.join([str(obj) for obj in ty.objects])
-
 def pretty_type(ty, parenthesize=False):
     if isinstance(ty, Under):
         result = '%s >> %s' % (pretty_type(ty.left, True),
@@ -70,62 +34,11 @@ def base_elements(ty):
     recursives = set().union(*[base_elements(ob) for ob in ty.objects])
     return bases | recursives
 
-class CartesianClosed(Closed[Ty]):
-    def is_compound(self):
-        is_arrow = self._key == Closed._Key.ARROW
-        is_product = self._key == Closed._Key.BASE and len(self.base()) > 1
-        return is_arrow or is_product
-
-    def tensor(self, other):
-        if self == TOP and other == TOP:
-            return TOP
-        if self == TOP:
-            return other
-        if other == TOP:
-            return self
-        return CartesianClosed.BASE(Ty(self, other))
-
-    def __matmul__(self, other):
-        return self.tensor(other)
-
-    def _pretty(self, parenthesize=False):
-        result = self.match(
-            base=lambda ty: pretty_tuple_type(ty),
-            var=lambda name: 'Var(%s)' % name,
-            arrow=lambda l, r: '%s -> %s' % (l._pretty(True), r._pretty())
-        )
-        if parenthesize and self._key == Closed._Key.ARROW:
-            result = '(%s)' % result
-        return result
-
-    def base_elements(self):
-        def ty_base_elements(ty):
-            return set().union(*[t.base_elements() for t in ty
-                                 if isinstance(t, CartesianClosed)]) |\
-                   {t for t in ty if not isinstance(t, CartesianClosed)}
-        return self.match(
-            base=ty_base_elements,
-            var=lambda name: set(CartesianClosed.VAR(name)),
-            arrow=lambda l, r: l.base_elements() | r.base_elements()
-        )
-
-TOP = Ty()
-
-def wrap_base_ob(ob):
-    if isinstance(ob, CartesianClosed):
-        return ob
-    if isinstance(ob, Ty):
-        return CartesianClosed.BASE(ob)
-    return CartesianClosed.BASE(Ty(ob))
-
 def unique_identifier():
     return uuid.uuid4().hex[:7]
 
 def unique_ty():
     return Ty(unique_identifier())
-
-def unique_closed():
-    return Closed.BASE(Ob(unique_identifier()))
 
 UNIFICATION_EXCEPTION_MSG = 'Could not unify %s with %s'
 SUBSTITUTION_EXCEPTION_MSG = 'to substitute for %s'
