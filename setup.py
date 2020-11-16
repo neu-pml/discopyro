@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name="discopyro-bpl",
-    version="0.1",
+    version="0.2",
     packages=find_packages(),
 
     # Project uses reStructuredText, so ensure that the docutils get
