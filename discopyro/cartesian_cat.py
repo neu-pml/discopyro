@@ -270,7 +270,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         arrow_edges = []
         arrow_labels = {}
         for arrow in self.ars:
-            u, v = arrow.type.left, arrow.type.right
+            u, v = arrow.dom, arrow.cod
             if (u, v) in skip_edges:
                 continue
             k = self._graph.nodes[arrow]['arrow_index']
@@ -296,8 +296,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                                edgelist=macro_edges, edge_color='gray',
                                alpha=0.5)
         nx.draw_networkx_labels(skeleton, pos, font_size=12,
-                                labels={obj: '$%s$' % str(obj) for obj
-                                        in self.obs})
+                                labels={obj: str(obj) for obj in self.obs})
         plt.axis("off")
         if filename:
             plt.savefig(filename)
