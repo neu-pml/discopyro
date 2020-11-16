@@ -1,5 +1,5 @@
 import collections
-from discopy import Ty
+from discopy.biclosed import Ty, Under
 from discopy.cartesian import Id
 import functools
 from indexed import IndexedOrderedDict
@@ -65,12 +65,12 @@ class CartesianCategory(pyro.nn.PyroModule):
                 self.add_module('global_element_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.compound_obs):
-            if obj._key == closed.CartesianClosed._Key.ARROW:
-                src, dest = obj.arrow()
+            if isinstance(obj, Under):
+                src, dest = obj.left, obj.right
                 def macro(probs, temp, min_depth, infer, l=src, r=dest):
                     return self.path_between(l, r, probs, temp, min_depth,
                                              infer)
-            elif obj._key == closed.CartesianClosed._Key.BASE:
+            else:
                 def macro(probs, temp, min_depth, infer, obj=obj):
                     return self.product_arrow(obj, probs, temp, min_depth,
                                               infer)
