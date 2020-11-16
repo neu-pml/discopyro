@@ -117,7 +117,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     def _add_object(self, obj):
         if obj in self._graph:
             return
-        if obj.is_compound():
+        if closed.type_compound(obj):
             if len(obj) > 1:
                 for ty in obj.base():
                     if not isinstance(ty, closed.CartesianClosed):
@@ -151,7 +151,7 @@ class CartesianCategory(pyro.nn.PyroModule):
     @property
     def compound_obs(self):
         for obj in self.obs:
-            if obj.is_compound():
+            if closed.type_compound(obj):
                 yield obj
 
     @property
