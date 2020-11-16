@@ -15,7 +15,7 @@ import torch.distributions.constraints as constraints
 import torch.nn as nn
 import torch.nn.functional as F
 
-from . import closed
+from . import callable, unification
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
@@ -25,7 +25,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         self._graph = nx.DiGraph()
         self._add_object(Ty())
         for i, gen in enumerate(generators):
-            assert isinstance(gen, closed.TypedBox)
+            assert isinstance(gen, callable.CallableBox)
 
             if gen.typed_dom not in self._graph:
                 self._add_object(gen.typed_dom)
@@ -37,7 +37,7 @@ class CartesianCategory(pyro.nn.PyroModule):
 
             if isinstance(gen.function, nn.Module):
                 self.add_module('generator_%d' % i, gen.function)
-            if isinstance(gen, closed.TypedDaggerBox):
+            if isinstance(gen, callable.CallableDaggerBox):
                 dagger = gen.dagger()
                 if isinstance(dagger.function, nn.Module):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
@@ -46,12 +46,12 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.nodes[obj]['object_index'] = i
 
         for i, elem in enumerate(global_elements):
-            assert isinstance(elem, closed.TypedBox)
+            assert isinstance(elem, callable.CallableBox)
             assert elem.typed_dom == Ty()
-            if not isinstance(elem, closed.TypedDaggerBox):
-                elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
-                                             elem.typed_cod, elem.function,
-                                             lambda *args: ())
+            if not isinstance(elem, callable.CallableDaggerBox):
+                elem = callable.CallableDaggerBox(elem.name, elem.dom, elem.cod,
+                                                  elem.function,
+                                                  lambda *args: ())
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
@@ -107,7 +107,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         if isinstance(arrow.function, nn.Module):
             for parameter in arrow.function.parameters():
                 params += parameter.numel()
-        if isinstance(arrow, closed.TypedDaggerBox):
+        if isinstance(arrow, callable.CallableDaggerBox):
             dagger = arrow.dagger()
             if isinstance(dagger.function, nn.Module):
                 for parameter in dagger.function.parameters():
@@ -117,12 +117,10 @@ class CartesianCategory(pyro.nn.PyroModule):
     def _add_object(self, obj):
         if obj in self._graph:
             return
-        if closed.type_compound(obj):
+        if unification.type_compound(obj):
             if len(obj) > 1:
-                for ty in obj.base():
-                    if not isinstance(ty, closed.CartesianClosed):
-                        ty = closed.wrap_base_ob(ty)
-                    self._add_object(ty)
+                for ty in obj:
+                    self._add_object(Ty(ty))
             else:
                 dom, cod = obj.left, obj.right
                 self._add_object(dom)
@@ -145,25 +143,23 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @property
     def obs(self):
-        return [node for node in self._graph
-                if isinstance(node, closed.CartesianClosed)]
+        return [node for node in self._graph if isinstance(node, Ty)]
 
     @property
     def compound_obs(self):
         for obj in self.obs:
-            if closed.type_compound(obj):
+            if unification.type_compound(obj):
                 yield obj
 
     @property
     def ars(self):
         return [node for node in self._graph
-                if isinstance(node, closed.TypedBox)]
+                if isinstance(node, callable.CallableBox)]
 
     @property
     def macros(self):
-        return [node for node in self._graph if\
-                not isinstance(node, closed.CartesianClosed) and\
-                not isinstance(node, closed.TypedBox)]
+        return [node for node in self._graph if not isinstance(node, Ty) and\
+                not isinstance(node, callable.CallableBox)]
 
     @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
@@ -226,7 +222,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                                     infer=infer)
 
                 gen, cod = generators[viables[g_idx.item()]]
-                if isinstance(gen, closed.TypedBox):
+                if isinstance(gen, callable.CallableBox):
                     morphism = gen
                 else:
                     morphism = gen(probs, temperature,
@@ -241,8 +237,8 @@ class CartesianCategory(pyro.nn.PyroModule):
             if obj in self._graph.nodes:
                 return self.path_between(Ty(), obj, probs, temperature,
                                          min_depth, infer)
-            entries = closed.unfold_arrow(obj)
-            src, dest = closed.fold_product(entries[:-1]), entries[-1]
+            entries = unification.unfold_arrow(obj)
+            src, dest = unification.fold_product(entries[:-1]), entries[-1]
             return self.path_between(src, dest, probs, temperature, min_depth,
                                      infer)
 
