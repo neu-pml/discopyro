@@ -124,7 +124,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                         ty = closed.wrap_base_ob(ty)
                     self._add_object(ty)
             else:
-                dom, cod = obj.arrow()
+                dom, cod = obj.left, obj.right
                 self._add_object(dom)
                 self._add_object(cod)
         self._graph.add_node(obj, index=len(self._graph))
@@ -274,7 +274,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         arrow_edges = []
         arrow_labels = {}
         for arrow in self.ars:
-            u, v = arrow.type.arrow()
+            u, v = arrow.type.left, arrow.type.right
             if (u, v) in skip_edges:
                 continue
             k = self._graph.nodes[arrow]['arrow_index']
