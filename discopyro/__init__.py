@@ -1,3 +1,3 @@
 from . import *
 
-__all__ = ['callable', 'cartesian_cat', 'unification']
+__all__ = ['callable', 'freecat', 'unification']
