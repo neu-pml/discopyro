@@ -71,18 +71,18 @@ def try_unify(a, b, subst={}):
         r, rsub = try_unify(a.right, b.right)
         subst = try_merge_substitution(lsub, rsub)
         return l >> r, subst
-    if a.objects and b.objects:
-        results = [try_unify(ak, bk) for ak, bk in zip(a.objects, b.objects)]
-        ty = Ty(*[ty for ty, _ in results])
-        subst = functools.reduce(try_merge_substitution,
-                                 [subst for _, subst in results])
-        return ty, subst
     if a == b:
         return a, {}
     if isinstance(a, TyVar):
         return b, {a.name: b}
     if isinstance(b, TyVar):
         return a, {b.name: a}
+    if a.objects and b.objects:
+        results = [try_unify(ak, bk) for ak, bk in zip(a.objects, b.objects)]
+        ty = Ty(*[ty for ty, _ in results])
+        subst = functools.reduce(try_merge_substitution,
+                                 [subst for _, subst in results])
+        return ty, subst
     raise UnificationException(a, b)
 
 def unify(a, b, substitution={}):
