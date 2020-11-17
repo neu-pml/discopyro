@@ -119,8 +119,8 @@ class FreeCategory(pyro.nn.PyroModule):
             return
         if unification.type_compound(obj):
             if len(obj) > 1:
-                for ty in obj:
-                    self._add_object(Ty(ty))
+                for ob in obj:
+                    self._add_object(Ty(ob))
             else:
                 dom, cod = obj.left, obj.right
                 self._add_object(dom)
@@ -183,11 +183,10 @@ class FreeCategory(pyro.nn.PyroModule):
 
     @pnn.pyro_method
     def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
-        ty = obj.base()
         product = None
-        for ob in ty.objects:
-            entry = self.sample_morphism(ob, probs, temperature + 1, min_depth,
-                                         infer)
+        for ob in obj.objects:
+            entry = self.sample_morphism(Ty(ob), probs, temperature + 1,
+                                         min_depth, infer)
             if product is None:
                 product = entry
             else:
