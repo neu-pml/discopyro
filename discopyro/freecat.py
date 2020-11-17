@@ -100,7 +100,7 @@ class FreeCategory(pyro.nn.PyroModule):
             adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
         self.register_buffer('diffusion_counts', torch.from_numpy(
             scipy.linalg.expm(adjacency_weights)
-        ))
+        ), persistent=False)
 
     def _arrow_parameters(self, arrow):
         params = 0
