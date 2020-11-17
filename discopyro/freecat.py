@@ -1,6 +1,5 @@
 import collections
-from discopy import Ty
-from discopy.cartesian import Id
+from discopy.biclosed import Id, Ty, Under
 import functools
 from indexed import IndexedOrderedDict
 import matplotlib.pyplot as plt
@@ -15,29 +14,29 @@ import torch.distributions.constraints as constraints
 import torch.nn as nn
 import torch.nn.functional as F
 
-from . import closed
+from . import callable, unification
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
-class CartesianCategory(pyro.nn.PyroModule):
+class FreeCategory(pyro.nn.PyroModule):
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
-        self._add_object(closed.TOP)
+        self._add_object(Ty())
         for i, gen in enumerate(generators):
-            assert isinstance(gen, closed.TypedBox)
+            assert isinstance(gen, callable.CallableBox)
 
-            if gen.typed_dom not in self._graph:
-                self._add_object(gen.typed_dom)
+            if gen.dom not in self._graph:
+                self._add_object(gen.dom)
             self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
-            if gen.typed_cod not in self._graph:
-                self._add_object(gen.typed_cod)
-            self._graph.add_edge(gen.typed_dom, gen)
-            self._graph.add_edge(gen, gen.typed_cod)
+            if gen.cod not in self._graph:
+                self._add_object(gen.cod)
+            self._graph.add_edge(gen.dom, gen)
+            self._graph.add_edge(gen, gen.cod)
 
             if isinstance(gen.function, nn.Module):
                 self.add_module('generator_%d' % i, gen.function)
-            if isinstance(gen, closed.TypedDaggerBox):
+            if isinstance(gen, callable.CallableDaggerBox):
                 dagger = gen.dagger()
                 if isinstance(dagger.function, nn.Module):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
@@ -46,17 +45,18 @@ class CartesianCategory(pyro.nn.PyroModule):
             self._graph.nodes[obj]['object_index'] = i
 
         for i, elem in enumerate(global_elements):
-            assert isinstance(elem, closed.TypedBox)
-            assert elem.typed_dom == closed.TOP
-            if not isinstance(elem, closed.TypedDaggerBox):
-                elem = closed.TypedDaggerBox(elem.name, elem.typed_dom,
-                                             elem.typed_cod, elem.function,
-                                             lambda *args: ())
+            assert isinstance(elem, callable.CallableBox)
+            assert elem.dom == Ty()
+            if not isinstance(elem, callable.CallableDaggerBox):
+                dagger_name = '%s$^{\\dagger}$' % elem.name
+                elem = callable.CallableDaggerBox(elem.name, elem.dom, elem.cod,
+                                                  elem.function,
+                                                  lambda *args: (), dagger_name)
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
-            self._graph.add_edge(closed.TOP, elem)
-            self._graph.add_edge(elem, elem.typed_cod)
+            self._graph.add_edge(Ty(), elem)
+            self._graph.add_edge(elem, elem.cod)
 
             if isinstance(elem.function, nn.Module):
                 self.add_module('global_element_%d' % i, elem.function)
@@ -65,12 +65,12 @@ class CartesianCategory(pyro.nn.PyroModule):
                 self.add_module('global_element_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.compound_obs):
-            if obj._key == closed.CartesianClosed._Key.ARROW:
-                src, dest = obj.arrow()
+            if isinstance(obj, Under):
+                src, dest = obj.left, obj.right
                 def macro(probs, temp, min_depth, infer, l=src, r=dest):
                     return self.path_between(l, r, probs, temp, min_depth,
                                              infer)
-            elif obj._key == closed.CartesianClosed._Key.BASE:
+            else:
                 def macro(probs, temp, min_depth, infer, obj=obj):
                     return self.product_arrow(obj, probs, temp, min_depth,
                                               infer)
@@ -78,7 +78,7 @@ class CartesianCategory(pyro.nn.PyroModule):
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
                                  arrow_index=arrow_index)
-            self._graph.add_edge(closed.TOP, macro)
+            self._graph.add_edge(Ty(), macro)
             self._graph.add_edge(macro, obj)
 
         self.arrow_weight_alphas = pnn.PyroParam(
@@ -100,14 +100,14 @@ class CartesianCategory(pyro.nn.PyroModule):
             adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
         self.register_buffer('diffusion_counts', torch.from_numpy(
             scipy.linalg.expm(adjacency_weights)
-        ))
+        ), persistent=False)
 
     def _arrow_parameters(self, arrow):
         params = 0
         if isinstance(arrow.function, nn.Module):
             for parameter in arrow.function.parameters():
                 params += parameter.numel()
-        if isinstance(arrow, closed.TypedDaggerBox):
+        if isinstance(arrow, callable.CallableDaggerBox):
             dagger = arrow.dagger()
             if isinstance(dagger.function, nn.Module):
                 for parameter in dagger.function.parameters():
@@ -117,14 +117,12 @@ class CartesianCategory(pyro.nn.PyroModule):
     def _add_object(self, obj):
         if obj in self._graph:
             return
-        if obj.is_compound():
+        if unification.type_compound(obj):
             if len(obj) > 1:
-                for ty in obj.base():
-                    if not isinstance(ty, closed.CartesianClosed):
-                        ty = closed.wrap_base_ob(ty)
-                    self._add_object(ty)
+                for ob in obj:
+                    self._add_object(Ty(ob))
             else:
-                dom, cod = obj.arrow()
+                dom, cod = obj.left, obj.right
                 self._add_object(dom)
                 self._add_object(cod)
         self._graph.add_node(obj, index=len(self._graph))
@@ -145,25 +143,23 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @property
     def obs(self):
-        return [node for node in self._graph
-                if isinstance(node, closed.CartesianClosed)]
+        return [node for node in self._graph if isinstance(node, Ty)]
 
     @property
     def compound_obs(self):
         for obj in self.obs:
-            if obj.is_compound():
+            if unification.type_compound(obj):
                 yield obj
 
     @property
     def ars(self):
         return [node for node in self._graph
-                if isinstance(node, closed.TypedBox)]
+                if isinstance(node, callable.CallableBox)]
 
     @property
     def macros(self):
-        return [node for node in self._graph if\
-                not isinstance(node, closed.CartesianClosed) and\
-                not isinstance(node, closed.TypedBox)]
+        return [node for node in self._graph if not isinstance(node, Ty) and\
+                not isinstance(node, callable.CallableBox)]
 
     @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
@@ -187,11 +183,10 @@ class CartesianCategory(pyro.nn.PyroModule):
 
     @pnn.pyro_method
     def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
-        ty = obj.base()
         product = None
-        for ob in ty.objects:
-            entry = self.sample_morphism(ob, probs, temperature + 1, min_depth,
-                                         infer)
+        for ob in obj.objects:
+            entry = self.sample_morphism(Ty(ob), probs, temperature + 1,
+                                         min_depth, infer)
             if product is None:
                 product = entry
             else:
@@ -201,10 +196,10 @@ class CartesianCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def path_between(self, src, dest, probs, temperature, min_depth=0,
                      infer={}):
-        assert dest != closed.TOP
+        assert dest != Ty()
 
         location = src
-        path = Id(len(src))
+        path = Id(src)
         dest_index = self._graph.nodes[dest]['index']
         with pyro.markov():
             while location != dest:
@@ -226,7 +221,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                                     infer=infer)
 
                 gen, cod = generators[viables[g_idx.item()]]
-                if isinstance(gen, closed.TypedBox):
+                if isinstance(gen, callable.CallableBox):
                     morphism = gen
                 else:
                     morphism = gen(probs, temperature,
@@ -239,10 +234,10 @@ class CartesianCategory(pyro.nn.PyroModule):
     def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
         with name_count():
             if obj in self._graph.nodes:
-                return self.path_between(closed.TOP, obj, probs, temperature,
+                return self.path_between(Ty(), obj, probs, temperature,
                                          min_depth, infer)
-            entries = closed.unfold_arrow(obj)
-            src, dest = closed.fold_product(entries[:-1]), entries[-1]
+            entries = unification.unfold_arrow(obj)
+            src, dest = unification.fold_product(entries[:-1]), entries[-1]
             return self.path_between(src, dest, probs, temperature, min_depth,
                                      infer)
 
@@ -274,7 +269,7 @@ class CartesianCategory(pyro.nn.PyroModule):
         arrow_edges = []
         arrow_labels = {}
         for arrow in self.ars:
-            u, v = arrow.type.arrow()
+            u, v = arrow.dom, arrow.cod
             if (u, v) in skip_edges:
                 continue
             k = self._graph.nodes[arrow]['arrow_index']
@@ -300,8 +295,7 @@ class CartesianCategory(pyro.nn.PyroModule):
                                edgelist=macro_edges, edge_color='gray',
                                alpha=0.5)
         nx.draw_networkx_labels(skeleton, pos, font_size=12,
-                                labels={obj: '$%s$' % str(obj) for obj
-                                        in self.obs})
+                                labels={obj: str(obj) for obj in self.obs})
         plt.axis("off")
         if filename:
             plt.savefig(filename)
