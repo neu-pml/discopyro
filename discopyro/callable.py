@@ -80,8 +80,6 @@ class DaggerFunction(Function):
                           self.function)
 
 def functionize(f):
-    if not isinstance(f, CallableBox):
-        import pdb; pdb.set_trace()
     if isinstance(f, CallableDaggerBox):
         dagger_function = f.dagger().function
         return DaggerFunction(len(f.dom), len(f.cod), f.function,
