@@ -8,7 +8,7 @@ from . import unification
 class CallableBox(Box):
     def __init__(self, name, dom, cod, function=None, data=None, _dagger=False):
         self._function = function
-        super().__init__(name, dom, cod, data, _dagger=_dagger)
+        super().__init__(name, dom, cod, data=data, _dagger=_dagger)
 
     @property
     def function(self):
