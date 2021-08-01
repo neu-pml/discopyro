@@ -94,13 +94,12 @@ class FreeCategory(pyro.nn.PyroModule):
         self.temperature_beta = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
 
-        adjacency_weights = nx.to_numpy_matrix(self._graph)
+        adjacency_weights = torch.from_numpy(nx.to_numpy_matrix(self._graph))
         for arrow in self.ars:
             i = self._graph.nodes[arrow]['index']
             adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
-        self.register_buffer('diffusion_counts', torch.from_numpy(
-            scipy.linalg.expm(adjacency_weights)
-        ), persistent=False)
+        self.register_buffer('diffusion_counts', adjacency_weights.matrix_exp(),
+                             persistent=False)
 
     def _arrow_parameters(self, arrow):
         params = 0
