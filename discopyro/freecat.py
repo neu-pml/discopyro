@@ -4,10 +4,13 @@ import functools
 from indexed import IndexedOrderedDict
 import matplotlib.pyplot as plt
 import networkx as nx
+import os.path
 import pyro
 from pyro.contrib.autoname import name_count
 import pyro.distributions as dist
 import pyro.nn as pnn
+import pyvis
+import pyvis.network
 import scipy.linalg
 import torch
 import torch.distributions.constraints as constraints
@@ -258,21 +261,23 @@ class FreeCategory(pyro.nn.PyroModule):
         weights = self.diffusion_counts + self.weights_matrix(arrow_weights)
         return self.sample_morphism(obj, weights, temperature, min_depth, infer)
 
-    def draw(self, skip_edges=[], filename=None):
+    def skeleton(self, skip_edges=[]):
         arrow_weights = dist.Beta(self.arrow_weight_alphas,
                                   self.arrow_weight_betas).mean
 
         skeleton = nx.MultiDiGraph()
         for obj in self.obs:
-            skeleton.add_node(obj)
+            skeleton.add_node(str(obj))
         arrow_edges = []
         arrow_labels = {}
         for arrow in self.ars:
             u, v = arrow.dom, arrow.cod
             if (u, v) in skip_edges:
                 continue
+            u, v = str(u), str(v)
             k = self._graph.nodes[arrow]['arrow_index']
-            skeleton.add_edge(u, v, arrow, weight=arrow_weights[k])
+
+            skeleton.add_edge(u, v, arrow.name, weight=arrow_weights[k].item())
             arrow_edges.append((u, v))
             arrow_labels[(u, v)] = arrow.name
         macro_edges = []
@@ -281,24 +286,41 @@ class FreeCategory(pyro.nn.PyroModule):
             v = list(self._graph.successors(macro))[0]
             if (u, v) in skip_edges:
                 continue
+            u, v = str(u), str(v)
             k = self._graph.nodes[macro]['arrow_index']
-            skeleton.add_edge(u, v, weight=arrow_weights[k])
+
+            skeleton.add_edge(u, v, weight=arrow_weights[k].item())
             macro_edges.append((u, v))
 
-        pos = nx.spring_layout(skeleton, k=10, weight='weight')
-        nx.draw_networkx_nodes(skeleton, pos, node_size=700)
-        nx.draw_networkx_edges(skeleton, pos, node_size=700,
-                               edgelist=arrow_edges, width=2, edge_color='gray',
-                               alpha=0.75)
-        nx.draw_networkx_edges(skeleton, pos, node_size=700,
-                               edgelist=macro_edges, edge_color='gray',
-                               alpha=0.5)
-        nx.draw_networkx_labels(skeleton, pos, font_size=12,
-                                labels={obj: str(obj) for obj in self.obs})
-        plt.axis("off")
-        if filename:
-            plt.savefig(filename)
-        plt.show()
+        return skeleton, arrow_edges, macro_edges
+
+    def draw(self, skip_edges=[], filename=None, notebook=False):
+        skeleton, arrow_edges, macro_edges = self.skeleton(skip_edges)
+
+        if filename and os.path.splitext(filename)[1] == '.html':
+            vis = pyvis.network.Network(directed=True)
+            vis.from_nx(skeleton)
+            vis.toggle_physics(True)
+            vis.show_buttons()
+            vis.show(filename)
+            if notebook:
+                from IPython.core.display import display, HTML
+                display(HTML(filename))
+        else:
+            pos = nx.spring_layout(skeleton, k=10, weight='weight')
+            nx.draw_networkx_nodes(skeleton, pos, node_size=700)
+            nx.draw_networkx_edges(skeleton, pos, node_size=700,
+                                   edgelist=arrow_edges, width=2,
+                                   edge_color='gray', alpha=0.75)
+            nx.draw_networkx_edges(skeleton, pos, node_size=700,
+                                   edgelist=macro_edges, edge_color='gray',
+                                   alpha=0.5)
+            nx.draw_networkx_labels(skeleton, pos, font_size=12)
+            plt.axis("off")
+
+            if filename:
+                plt.savefig(filename)
+            plt.show()
 
     def resume_from_checkpoint(self, resume_path):
         """
