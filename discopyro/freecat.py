@@ -265,56 +265,40 @@ class FreeCategory(pyro.nn.PyroModule):
         arrow_weights = dist.Beta(self.arrow_weight_alphas,
                                   self.arrow_weight_betas).mean
 
-        skeleton = nx.MultiDiGraph()
-        for obj in self.obs:
-            skeleton.add_node(str(obj))
-        arrow_edges = []
-        arrow_labels = {}
-        for arrow in self.ars:
-            u, v = arrow.dom, arrow.cod
+        skeleton = nx.DiGraph()
+
+        for node in self._graph.nodes:
+            props = {}
+            if 'arrow_index' in self._graph.nodes[node]:
+                k = self._graph.nodes[node]['arrow_index']
+                props['weight'] = arrow_weights[k].item()
+            skeleton.add_node(str(node), **props)
+
+        for u, v in self._graph.edges:
             if (u, v) in skip_edges:
                 continue
-            u, v = str(u), str(v)
-            k = self._graph.nodes[arrow]['arrow_index']
-
-            skeleton.add_edge(u, v, arrow.name, weight=arrow_weights[k].item())
-            arrow_edges.append((u, v))
-            arrow_labels[(u, v)] = arrow.name
-        macro_edges = []
-        for macro in self.macros:
-            u = list(self._graph.predecessors(macro))[0]
-            v = list(self._graph.successors(macro))[0]
-            if (u, v) in skip_edges:
-                continue
-            u, v = str(u), str(v)
-            k = self._graph.nodes[macro]['arrow_index']
-
-            skeleton.add_edge(u, v, weight=arrow_weights[k].item())
-            macro_edges.append((u, v))
-
-        return skeleton, arrow_edges, macro_edges
+            skeleton.add_edge(str(u), str(v))
+        return skeleton
 
     def draw(self, skip_edges=[], filename=None, notebook=False):
-        skeleton, arrow_edges, macro_edges = self.skeleton(skip_edges)
+        skeleton = self.skeleton(skip_edges)
 
         if filename and os.path.splitext(filename)[1] == '.html':
-            vis = pyvis.network.Network(directed=True)
+            vis = pyvis.network.Network(layout='hierarchical', directed=True)
+            vis.options.layout.hierarchical.direction = 'LR'
+            vis.options.layout.hierarchical.sortMethod = 'directed'
+
             vis.from_nx(skeleton)
             vis.toggle_physics(True)
-            vis.show_buttons()
-            vis.show(filename)
+            vis.save_graph(filename)
             if notebook:
                 from IPython.core.display import display, HTML
                 display(HTML(filename))
         else:
             pos = nx.spring_layout(skeleton, k=10, weight='weight')
             nx.draw_networkx_nodes(skeleton, pos, node_size=700)
-            nx.draw_networkx_edges(skeleton, pos, node_size=700,
-                                   edgelist=arrow_edges, width=2,
+            nx.draw_networkx_edges(skeleton, pos, node_size=700, width=2,
                                    edge_color='gray', alpha=0.75)
-            nx.draw_networkx_edges(skeleton, pos, node_size=700,
-                                   edgelist=macro_edges, edge_color='gray',
-                                   alpha=0.5)
             nx.draw_networkx_labels(skeleton, pos, font_size=12)
             plt.axis("off")
 
