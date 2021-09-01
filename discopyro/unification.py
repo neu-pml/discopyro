@@ -1,4 +1,3 @@
-from adt import adt, Case
 from discopy import messages
 from discopy.biclosed import Box, Ty, Under
 from discopy.cat import Arrow, Ob, AxiomError
