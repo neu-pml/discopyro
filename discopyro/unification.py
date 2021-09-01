@@ -95,7 +95,8 @@ class UnificationException(Exception):
     :type x: :class:`discopy.biclosed.Ty`
     :param y: Type on right side of unification equation
     :type y: :class:`discopy.biclosed.Ty`
-    :param str k: Substitution key whose resolution was subject to the equation
+    :param k: Substitution key whose resolution was subject to the equation
+    :type k: str or None
     """
     def __init__(self, x, y, k=None):
         self.key = k
