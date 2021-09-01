@@ -16,6 +16,15 @@ class TyVar(Ty):
         super().__init__(name)
 
 def pretty_type(ty, parenthesize=False):
+    """Represents a type in nice LaTeX math formatting
+
+    :param ty: A type to represent
+    :type ty: :class:`discopy.biclosed.Ty`
+    :param bool parenthesize: Whether to enclose the result in parentheses
+
+    :return: LaTeX math formatted representation of `ty`
+    :rtype: str
+    """
     if isinstance(ty, Under):
         result = '%s >> %s' % (pretty_type(ty.left, True),
                                pretty_type(ty.right))
