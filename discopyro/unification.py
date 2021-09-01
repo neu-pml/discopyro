@@ -6,6 +6,12 @@ from typing import Generic, TypeVar
 import uuid
 
 class TyVar(Ty):
+    """Represents a type variable identified by a name, as a subclass of the
+    :class:`discopy.biclosed.Ty` class
+
+    :param str name: A name for the type variable
+    """
+
     def __init__(self, name):
         super().__init__(name)
 
