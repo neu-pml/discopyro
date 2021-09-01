@@ -67,9 +67,19 @@ def base_elements(ty):
     return bases | recursives
 
 def unique_identifier():
+    """Generate a universally unique identifier seven hex digits long
+
+    :return: A seven-digit universally unique identifier in hex
+    :rtype: str
+    """
     return uuid.uuid4().hex[:7]
 
 def unique_ty():
+    """Generate a type with a universally unique name
+
+    :return: A type with a universally unique name
+    :rtype: :class:`discopy.biclosed.Ty`
+    """
     return Ty(unique_identifier())
 
 UNIFICATION_EXCEPTION_MSG = 'Could not unify %s with %s'
