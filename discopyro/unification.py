@@ -37,6 +37,15 @@ def pretty_type(ty, parenthesize=False):
     return result
 
 def type_compound(ty):
+    """Predicate describing whether a type is compound or not
+
+    :param ty: A type
+    :type ty: :class:`discopy.biclosed.Ty`
+
+    :return: Whether `ty` is compound (a :class:`discopy.biclosed.Under` or a
+             monoidal product type)
+    :rtype: bool
+    """
     return isinstance(ty, Under) or len(ty) > 1
 
 def base_elements(ty):
