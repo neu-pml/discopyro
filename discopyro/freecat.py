@@ -1,7 +1,6 @@
 import collections
 from discopy.biclosed import Id, Ty, Under
 import functools
-from indexed import IndexedOrderedDict
 import matplotlib.pyplot as plt
 import networkx as nx
 import os.path
