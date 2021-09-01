@@ -49,6 +49,15 @@ def type_compound(ty):
     return isinstance(ty, Under) or len(ty) > 1
 
 def base_elements(ty):
+    """Compute the set of primitive :class:`discopy.biclosed.Ty` elements within
+       a type
+
+    :param ty: A type
+    :type ty: :class:`discopy.biclosed.Ty`
+
+    :return: Set of `ty`'s primitive elements
+    :rtype: set
+    """
     if not isinstance(ty, Ty):
         return Ty(ty)
     if isinstance(ty, Under):
