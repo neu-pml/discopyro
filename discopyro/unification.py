@@ -1,4 +1,7 @@
-from discopy import messages
+"""Module supporting unification of types and type variables instantiated as
+:class:`discopy.closed.Ty` instances
+"""
+
 from discopy.biclosed import Box, Ty, Under
 from discopy.cat import Arrow, Ob, AxiomError
 import functools
