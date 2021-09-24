@@ -1,13 +1,15 @@
 import collections
 from discopy.biclosed import Id, Ty, Under
 import functools
-from indexed import IndexedOrderedDict
 import matplotlib.pyplot as plt
 import networkx as nx
+import os.path
 import pyro
 from pyro.contrib.autoname import name_count
 import pyro.distributions as dist
 import pyro.nn as pnn
+import pyvis
+import pyvis.network
 import scipy.linalg
 import torch
 import torch.distributions.constraints as constraints
@@ -19,6 +21,16 @@ from . import callable, unification
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
 class FreeCategory(pyro.nn.PyroModule):
+    """Pyro module representing a free category as a graph, and implementing
+    stochastic shortest-paths sampling of morphisms.
+
+    :param list generators: A set of :class:`discopy.biclosed.Box` objects
+                            representing the generating morphisms of the free
+                            category.
+    :param list global_elements: A set of :class:`discopy.biclosed.Box`
+                                 representing the (often stochastic) global
+                                 elements of the free category's objects
+    """
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
@@ -94,15 +106,22 @@ class FreeCategory(pyro.nn.PyroModule):
         self.temperature_beta = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
 
-        adjacency_weights = nx.to_numpy_matrix(self._graph)
+        adjacency_weights = torch.from_numpy(nx.to_numpy_matrix(self._graph))
         for arrow in self.ars:
             i = self._graph.nodes[arrow]['index']
             adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
-        self.register_buffer('diffusion_counts', torch.from_numpy(
-            scipy.linalg.expm(adjacency_weights)
-        ), persistent=False)
+        self.register_buffer('diffusion_counts', adjacency_weights.matrix_exp(),
+                             persistent=False)
 
     def _arrow_parameters(self, arrow):
+        """Count up the number of parameters a generating morphism has, if its
+           implementing function happens to be a :class:`torch.nn.Module`
+
+           :param arrow: A generating morphism within the free category
+
+           :returns: Number of parameters in the arrow (including its dagger)
+           :rtype: int
+        """
         params = 0
         if isinstance(arrow.function, nn.Module):
             for parameter in arrow.function.parameters():
@@ -115,6 +134,11 @@ class FreeCategory(pyro.nn.PyroModule):
         return params
 
     def _add_object(self, obj):
+        """Add an object as a node to the graph representing the free category
+
+        :param obj: A type representing an object in the free category
+        :type obj: :class:`discopy.biclosed.Ty`
+        """
         if obj in self._graph:
             return
         if unification.type_compound(obj):
@@ -129,9 +153,25 @@ class FreeCategory(pyro.nn.PyroModule):
 
     @property
     def param_shapes(self):
+        """Parameter shapes that must be provided to sample
+
+        :returns: Tuple containing the shape of arrow weights and temperature
+                  parameters (for a Beta distribution)
+        :rtype: tuple
+        """
         return (self.arrow_weights.shape, self.temperature_alpha.shape * 2)
 
     def _object_generators(self, obj, forward=True):
+        """Return a list of generators flowing into or out of an object
+
+        :param obj: The object in question
+        :type obj: :class:`discopy.biclosed.Ty`
+        :param bool forward: Whether to look for arrows flowing out from (True)
+                             or into (False) an object
+
+        :returns: A list of generating morphisms connected to `obj`
+        :rtype: list
+        """
         edges = self._graph.out_edges if forward else self._graph.in_edges
         dir_index = 1 if forward else 0
         generators = []
@@ -143,26 +183,57 @@ class FreeCategory(pyro.nn.PyroModule):
 
     @property
     def obs(self):
+        """A list of the objects in the free category
+
+        :returns: The objects in the free category
+        :rtype: list
+        """
         return [node for node in self._graph if isinstance(node, Ty)]
 
     @property
     def compound_obs(self):
+        """A list of the compound (product and exponential) objects in the free
+           category
+
+        :returns: The product and exponential objects in the free category
+        :rtype: list
+        """
         for obj in self.obs:
             if unification.type_compound(obj):
                 yield obj
 
     @property
     def ars(self):
+        """A list of the generating morphisms in the free category
+
+        :returns: The generators in the free category
+        :rtype: list
+        """
         return [node for node in self._graph
                 if isinstance(node, callable.CallableBox)]
 
     @property
     def macros(self):
+        """A list of the generating macros in the free category
+
+        :returns: The macros in the free category
+        :rtype: list
+        """
         return [node for node in self._graph if not isinstance(node, Ty) and\
                 not isinstance(node, callable.CallableBox)]
 
     @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
+        """Construct the matrix of transition weights between nodes in the
+           free category's graph representation, given weights for the arrows.
+
+        :param arrow_weights: Weights for the arrows, indexed by arrow indices
+        :type arrow_weights: :class:`torch.Tensor`
+
+        :returns: An unnormalized transition matrix for a random walk over the
+                  nerve of the free category.
+        :rtype: :class:`torch.Tensor`
+        """
         weights = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
             arrow_weights
         )
@@ -183,6 +254,21 @@ class FreeCategory(pyro.nn.PyroModule):
 
     @pnn.pyro_method
     def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
+        """Sample a morphism from the terminal object into a Cartesian product
+
+        :param obj: Cartesian product object to target
+        :type obj: :class:`discopy.biclosed.Ty`
+        :param probs: Matrix of long-run arrival probabilities in the graph
+        :type probs: :class:`torch.Tensor`
+        :param temperature: Temperature (scale parameter) for sampling morphisms
+        :type temperature: :class:`torch.Tensor`
+
+        :param int min_depth: Minimum depth of sequential composition
+        :param dict infer: Inference parameters for `pyro.sample()`
+
+        :returns: A morphism from Ty() to `obj`
+        :rtype: :class:`discopy.biclosed.Diagram`
+        """
         product = None
         for ob in obj.objects:
             entry = self.sample_morphism(Ty(ob), probs, temperature + 1,
@@ -196,6 +282,24 @@ class FreeCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def path_between(self, src, dest, probs, temperature, min_depth=0,
                      infer={}):
+        """Sample a morphism from object `src` to object `dest`
+
+        :param src: Source object, the desired morphism's domain
+        :type src: :class:`discopy.biclosed.Ty`
+        :param dest: Destination object, the desired morphism's codomain
+        :type dest: :class:`discopy.biclosed.Ty`
+
+        :param probs: Matrix of long-run arrival probabilities in the graph
+        :type probs: :class:`torch.Tensor`
+        :param temperature: Temperature (scale parameter) for sampling morphisms
+        :type temperature: :class:`torch.Tensor`
+
+        :param int min_depth: Minimum depth of sequential composition
+        :param dict infer: Inference parameters for `pyro.sample()`
+
+        :returns: A morphism from `src` to `dest`
+        :rtype: :class:`discopy.biclosed.Diagram`
+        """
         assert dest != Ty()
 
         location = src
@@ -232,6 +336,21 @@ class FreeCategory(pyro.nn.PyroModule):
         return path
 
     def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
+        """Sample a morphism from the terminal object into a specified object
+
+        :param obj: Target object
+        :type obj: :class:`discopy.biclosed.Ty`
+        :param probs: Matrix of long-run arrival probabilities in the graph
+        :type probs: :class:`torch.Tensor`
+        :param temperature: Temperature (scale parameter) for sampling morphisms
+        :type temperature: :class:`torch.Tensor`
+
+        :param int min_depth: Minimum depth of sequential composition
+        :param dict infer: Inference parameters for `pyro.sample()`
+
+        :returns: A morphism from Ty() to `obj`
+        :rtype: :class:`discopy.biclosed.Diagram`
+        """
         with name_count():
             if obj in self._graph.nodes:
                 return self.path_between(Ty(), obj, probs, temperature,
@@ -243,6 +362,24 @@ class FreeCategory(pyro.nn.PyroModule):
 
     def forward(self, obj, min_depth=2, infer={}, temperature=None,
                 arrow_weights=None):
+        """Sample a morphism from the terminal object into a specified object
+
+        :param obj: Target object
+        :type obj: :class:`discopy.biclosed.Ty`
+
+        :param int min_depth: Minimum depth of sequential composition
+        :param dict infer: Inference parameters for `pyro.sample()`
+
+        :param temperature: Temperature (scale parameter) for sampling morphisms
+        :type temperature: :class:`torch.Tensor`
+
+        :param arrow_weights: Proposed arrow weights to combine with the
+                              long-run arrival probabilities
+        :type arrow_weights: :class:`torch.Tensor`
+
+        :returns: A morphism from Ty() to `obj`
+        :rtype: :class:`discopy.biclosed.Diagram`
+        """
         if temperature is None:
             temperature = pyro.sample(
                 'weights_temperature',
@@ -259,47 +396,64 @@ class FreeCategory(pyro.nn.PyroModule):
         weights = self.diffusion_counts + self.weights_matrix(arrow_weights)
         return self.sample_morphism(obj, weights, temperature, min_depth, infer)
 
-    def draw(self, skip_edges=[], filename=None):
+    def skeleton(self, skip_edges=[]):
+        """Construct the skeleton graph for the underlying free category
+
+        :param list skip_edges: List of arrows to skip
+
+        :returns: Skeleton graph
+        :rtype: :class:`nx.Digraph`
+        """
         arrow_weights = dist.Beta(self.arrow_weight_alphas,
                                   self.arrow_weight_betas).mean
 
-        skeleton = nx.MultiDiGraph()
-        for obj in self.obs:
-            skeleton.add_node(obj)
-        arrow_edges = []
-        arrow_labels = {}
-        for arrow in self.ars:
-            u, v = arrow.dom, arrow.cod
-            if (u, v) in skip_edges:
-                continue
-            k = self._graph.nodes[arrow]['arrow_index']
-            skeleton.add_edge(u, v, arrow, weight=arrow_weights[k])
-            arrow_edges.append((u, v))
-            arrow_labels[(u, v)] = arrow.name
-        macro_edges = []
-        for macro in self.macros:
-            u = list(self._graph.predecessors(macro))[0]
-            v = list(self._graph.successors(macro))[0]
-            if (u, v) in skip_edges:
-                continue
-            k = self._graph.nodes[macro]['arrow_index']
-            skeleton.add_edge(u, v, weight=arrow_weights[k])
-            macro_edges.append((u, v))
+        skeleton = nx.DiGraph()
 
-        pos = nx.spring_layout(skeleton, k=10, weight='weight')
-        nx.draw_networkx_nodes(skeleton, pos, node_size=700)
-        nx.draw_networkx_edges(skeleton, pos, node_size=700,
-                               edgelist=arrow_edges, width=2, edge_color='gray',
-                               alpha=0.75)
-        nx.draw_networkx_edges(skeleton, pos, node_size=700,
-                               edgelist=macro_edges, edge_color='gray',
-                               alpha=0.5)
-        nx.draw_networkx_labels(skeleton, pos, font_size=12,
-                                labels={obj: str(obj) for obj in self.obs})
-        plt.axis("off")
-        if filename:
-            plt.savefig(filename)
-        plt.show()
+        for node in self._graph.nodes:
+            props = {}
+            if 'arrow_index' in self._graph.nodes[node]:
+                k = self._graph.nodes[node]['arrow_index']
+                props['weight'] = arrow_weights[k].item()
+            skeleton.add_node(str(node), **props)
+
+        for u, v in self._graph.edges:
+            if (u, v) in skip_edges:
+                continue
+            skeleton.add_edge(str(u), str(v))
+        return skeleton
+
+    def draw(self, skip_edges=[], filename=None, notebook=False):
+        """Draw the free category's nerve/skeleton using either PyVis or
+           networkX
+
+        :param list skip_edges: List of arrows to skip
+        :param str filename: Filename to which to save the figure
+        :param bool notebook: Whether the caller is within a Jupyter notebook
+        """
+        skeleton = self.skeleton(skip_edges)
+
+        if filename and os.path.splitext(filename)[1] == '.html':
+            vis = pyvis.network.Network(layout='hierarchical', directed=True)
+            vis.options.layout.hierarchical.direction = 'LR'
+            vis.options.layout.hierarchical.sortMethod = 'directed'
+
+            vis.from_nx(skeleton)
+            vis.toggle_physics(True)
+            vis.save_graph(filename)
+            if notebook:
+                from IPython.core.display import display, HTML
+                display(HTML(filename))
+        else:
+            pos = nx.spring_layout(skeleton, k=10, weight='weight')
+            nx.draw_networkx_nodes(skeleton, pos, node_size=700)
+            nx.draw_networkx_edges(skeleton, pos, node_size=700, width=2,
+                                   edge_color='gray', alpha=0.75)
+            nx.draw_networkx_labels(skeleton, pos, font_size=12)
+            plt.axis("off")
+
+            if filename:
+                plt.savefig(filename)
+            plt.show()
 
     def resume_from_checkpoint(self, resume_path):
         """
