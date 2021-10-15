@@ -285,14 +285,14 @@ class FreeCategory(pyro.nn.PyroModule):
         return product
 
     @pnn.pyro_method
-    def path_between(self, src, dest, probs, temperature, min_depth=0,
+    def path_between(self, src, dest_mask, probs, temperature, min_depth=0,
                      infer={}):
-        """Sample a morphism from object `src` to object `dest`
+        """Sample a morphism from object `src` to object `dest_mask`
 
         :param src: Source object, the desired morphism's domain
         :type src: :class:`discopy.biclosed.Ty`
-        :param dest: Destination object, the desired morphism's codomain
-        :type dest: :class:`discopy.biclosed.Ty`
+        :param dest_mask: Destination object, the desired morphism's codomain
+        :type dest_mask: :class:`discopy.biclosed.Ty`
 
         :param probs: Matrix of long-run arrival probabilities in the graph
         :type probs: :class:`torch.Tensor`
@@ -302,30 +302,29 @@ class FreeCategory(pyro.nn.PyroModule):
         :param int min_depth: Minimum depth of sequential composition
         :param dict infer: Inference parameters for `pyro.sample()`
 
-        :returns: A morphism from `src` to `dest`
+        :returns: A morphism from `src` to `dest_mask`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        assert dest != Ty()
+        assert dest_mask.any()
 
         location = src
         path = Id(src)
-        dest_index = self._index(dest)
         with pyro.markov():
-            while location != dest:
+            while location != dest_mask:
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
                     generators = [(g, cod) for (g, cod) in generators
-                                  if cod != dest]
+                                  if cod != dest_mask]
                 gens = [self._index(g) for (g, _) in generators]
 
-                dest_probs = probs[gens][:, dest_index]
+                dest_probs = probs[gens][:, dest_mask].sum(dim=-1)
                 viables = dest_probs.nonzero(as_tuple=True)[0]
                 selection_probs = F.softmax(
                     dest_probs[viables].log() / (temperature + 1e-10),
                     dim=-1
                 )
                 generators_categorical = dist.Categorical(selection_probs)
-                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
+                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest_mask),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
