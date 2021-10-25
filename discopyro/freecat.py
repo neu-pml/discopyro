@@ -151,6 +151,10 @@ class FreeCategory(pyro.nn.PyroModule):
                 self._add_object(cod)
         self._graph.add_node(obj, index=len(self._graph))
 
+    def _index(self, node, arrow=False):
+        key = 'arrow_index' if arrow else 'index'
+        return self._graph.nodes[node][key]
+
     @property
     def param_shapes(self):
         """Parameter shapes that must be provided to sample
