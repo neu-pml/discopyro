@@ -156,7 +156,8 @@ def try_unify(a, b, subst={}):
         return b, {a.name: b}
     if isinstance(b, TyVar):
         return a, {b.name: a}
-    if isinstance(a, Ty) and isinstance(b, Ty):
+    if isinstance(a, Ty) and isinstance(b, Ty) and\
+       len(a.objects) == len(b.objects):
         results = [try_unify(ak, bk) for ak, bk in zip(a.objects, b.objects)]
         ty = Ty(*[ty for ty, _ in results])
         subst = functools.reduce(try_merge_substitution,
