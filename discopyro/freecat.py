@@ -367,23 +367,19 @@ class FreeCategory(pyro.nn.PyroModule):
 
         return path
 
-    def _sample_diagram(self, probs, temperature, min_depth, infer, f):
+    def _wiring_falg(self, probs, temperature, min_depth, infer, f):
         if isinstance(f, wiring.Id):
             return Id(f.dom)
         if isinstance(f, wiring.Box):
             assert isinstance(f.dom, Ty)
-            dom, cod = f.dom, f.cod
-            if isinstance(cod, Under):
-                entries = unification.unfold_arrow(cod)
-                dom, cod = unification.fold_product(entries[:-1]), entries[-1]
 
             dests = torch.tensor(
                 [self._graph.nodes[node]['index'] for node in self._graph
-                 if _node_fits_wiring_box(node, f, cod)],
+                 if _node_fits_wiring_box(node, f)],
                 dtype=torch.long, device=probs.device
             )
-            return self.path_between(dom, dests, probs, temperature, min_depth,
-                                     infer)
+            return self.path_between(f.dom, dests, probs, temperature,
+                                     min_depth, infer)
         if isinstance(f, wiring.Sequential):
             return functools.reduce(lambda f, g: f >> g, f.arrows, Id(f.dom))
         if isinstance(f, wiring.Parallel):
@@ -407,10 +403,10 @@ class FreeCategory(pyro.nn.PyroModule):
         :rtype: :class:`discopy.biclosed.Diagram`
         """
         with name_count():
-            return diagram.collapse(lambda f: self._sample_diagram(probs,
-                                                                   temperature,
-                                                                   min_depth,
-                                                                   infer, f))
+            return diagram.collapse(lambda f: self._wiring_falg(probs,
+                                                                temperature,
+                                                                min_depth,
+                                                                infer, f))
 
     def forward(self, diagram, min_depth=2, infer={}, temperature=None,
                 arrow_weights=None):
