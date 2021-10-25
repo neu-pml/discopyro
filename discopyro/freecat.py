@@ -22,6 +22,36 @@ from . import cart_closed, unification
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
+def _ty_fits_wiring_box(ty, cod):
+    if isinstance(cod, Ty):
+        return unification.unify(ty, cod) is not None
+    return cod(ty)
+
+def _gen_fits_wiring_box(gen, box):
+    if isinstance(box.cod, Ty):
+        cod_fits = unification.unify(gen.cod, box.cod) is not None
+    else:
+        cod_fits = box.cod(gen.cod)
+
+    box_data = box.data if box.data else {}
+    data_fits = []
+    for k, v in box_data.items():
+        if k in gen.data:
+            if callable(v):
+                data_fits.append(v(gen.data[k]))
+            else:
+                data_fits.append(gen.data[k] == v)
+        else:
+            data_fits.append(False)
+    return cod_fits and all(data_fits)
+
+def _node_fits_wiring_box(node, box):
+    if isinstance(node, Ty) and not box.data:
+        return _ty_fits_wiring_box(node, box.cod)
+    if isinstance(node, cart_closed.Box):
+        return _gen_fits_wiring_box(node, box)
+    return False
+
 class FreeCategory(pyro.nn.PyroModule):
     """Pyro module representing a free category as a graph, and implementing
     stochastic shortest-paths sampling of morphisms.
@@ -347,26 +377,9 @@ class FreeCategory(pyro.nn.PyroModule):
                 entries = unification.unfold_arrow(cod)
                 dom, cod = unification.fold_product(entries[:-1]), entries[-1]
 
-            def node_predicate(node, f=f, cod=cod):
-                if isinstance(node, Ty):
-                    if isinstance(cod, Ty):
-                        return unification.unify(node, cod) is not None
-                    return cod(node)
-                if isinstance(node, callable_cat.CallableBox):
-                    if isinstance(cod, Ty):
-                        result = unification.unify(node.cod, cod) is not None
-                    else:
-                        result = cod(node.cod)
-                    if f.data and 'effect' in f.data:
-                        effect_fit = f.data['effect'] == node.effect or\
-                                     f.data['effect'](node.effect)
-                        result = result and effect_fit
-                    return result
-                return False
-
             dests = torch.tensor(
                 [self._graph.nodes[node]['index'] for node in self._graph
-                 if node_predicate(node)],
+                 if _node_fits_wiring_box(node, f, cod)],
                 dtype=torch.long, device=probs.device
             )
             return self.path_between(dom, dests, probs, temperature, min_depth,
