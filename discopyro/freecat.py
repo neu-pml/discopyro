@@ -108,7 +108,7 @@ class FreeCategory(pyro.nn.PyroModule):
 
         adjacency_weights = torch.from_numpy(nx.to_numpy_matrix(self._graph))
         for arrow in self.ars:
-            i = self._graph.nodes[arrow]['index']
+            i = self._index(arrow)
             adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
         self.register_buffer('diffusion_counts', adjacency_weights.matrix_exp(),
                              persistent=False)
@@ -150,6 +150,10 @@ class FreeCategory(pyro.nn.PyroModule):
                 self._add_object(dom)
                 self._add_object(cod)
         self._graph.add_node(obj, index=len(self._graph))
+
+    def _index(self, node, arrow=False):
+        key = 'arrow_index' if arrow else 'index'
+        return self._graph.nodes[node][key]
 
     @property
     def param_shapes(self):
@@ -239,14 +243,14 @@ class FreeCategory(pyro.nn.PyroModule):
         )
 
         for arrow in self.ars:
-            i = self._graph.nodes[arrow]['index']
-            k = self._graph.nodes[arrow]['arrow_index']
+            i = self._index(arrow)
+            k = self._index(arrow, arrow=True)
             weights = weights.index_put((torch.LongTensor([i]),),
                                         weights[i] * arrow_weights[k])
 
         for macro in self.macros:
-            i = self._graph.nodes[macro]['index']
-            k = self._graph.nodes[macro]['arrow_index']
+            i = self._index(macro)
+            k = self._index(macro, arrow=True)
             weights = weights.index_put((torch.LongTensor([i]),),
                                         weights[i] * arrow_weights[k])
 
@@ -304,14 +308,14 @@ class FreeCategory(pyro.nn.PyroModule):
 
         location = src
         path = Id(src)
-        dest_index = self._graph.nodes[dest]['index']
+        dest_index = self._index(dest)
         with pyro.markov():
             while location != dest:
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
                     generators = [(g, cod) for (g, cod) in generators
                                   if cod != dest]
-                gens = [self._graph.nodes[g]['index'] for (g, _) in generators]
+                gens = [self._index(g) for (g, _) in generators]
 
                 dest_probs = probs[gens][:, dest_index]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
