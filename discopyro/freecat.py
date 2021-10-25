@@ -286,7 +286,7 @@ class FreeCategory(pyro.nn.PyroModule):
         return product
 
     @pnn.pyro_method
-    def path_between(self, src, dest_mask, probs, temperature, min_depth=0,
+    def path_between(self, src, dests, probs, temperature, min_depth=0,
                      infer={}):
         """Sample a morphism from object `src` to object `dest_mask`
 
@@ -306,26 +306,28 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: A morphism from `src` to `dest_mask`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        assert dest_mask.any()
+        assert dests.any()
 
         location = src
+        gen = None
         path = Id(src)
         with pyro.markov():
-            while location != dest_mask:
+            while self._index(location) not in dests and\
+                  (gen is None or self._index(gen) not in dests):
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
                     generators = [(g, cod) for (g, cod) in generators
-                                  if cod != dest_mask]
+                                  if self._index(cod) not in dests]
                 gens = [self._index(g) for (g, _) in generators]
 
-                dest_probs = probs[gens][:, dest_mask].sum(dim=-1)
+                dest_probs = probs[gens][:, dests].sum(dim=-1)
                 viables = dest_probs.nonzero(as_tuple=True)[0]
                 selection_probs = F.softmax(
                     dest_probs[viables].log() / (temperature + 1e-10),
                     dim=-1
                 )
                 generators_categorical = dist.Categorical(selection_probs)
-                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest_mask),
+                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dests),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
