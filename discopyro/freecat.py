@@ -369,12 +369,13 @@ class FreeCategory(pyro.nn.PyroModule):
                     return result
                 return False
 
-            dest_mask = torch.tensor(
-                [node_predicate(node) for node in self._graph],
-                dtype=torch.bool, device=probs.device
+            dests = torch.tensor(
+                [self._graph.nodes[node]['index'] for node in self._graph
+                 if node_predicate(node)],
+                dtype=torch.long, device=probs.device
             )
-            return self.path_between(dom, dest_mask, probs, temperature,
-                                     min_depth, infer)
+            return self.path_between(dom, dests, probs, temperature, min_depth,
+                                     infer)
         if isinstance(f, wiring.Sequential):
             return functools.reduce(lambda f, g: f >> g, f.arrows, Id(f.dom))
         if isinstance(f, wiring.Parallel):
