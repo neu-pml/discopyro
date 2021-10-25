@@ -1,6 +1,7 @@
 import collections
 from discopy.biclosed import Id, Under
 from discopy.monoidal import Ty
+import discopy.wiring as wiring
 import functools
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -339,7 +340,46 @@ class FreeCategory(pyro.nn.PyroModule):
 
         return path
 
-    def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
+    def _sample_diagram(self, probs, temperature, min_depth, infer, f):
+        if isinstance(f, wiring.Id):
+            return Id(f.dom)
+        if isinstance(f, wiring.Box):
+            assert isinstance(f.dom, Ty)
+            dom, cod = f.dom, f.cod
+            if isinstance(cod, Under):
+                entries = unification.unfold_arrow(cod)
+                dom, cod = unification.fold_product(entries[:-1]), entries[-1]
+
+            def node_predicate(node, f=f, cod=cod):
+                if isinstance(node, Ty):
+                    if isinstance(cod, Ty):
+                        return unification.unify(node, cod) is not None
+                    return cod(node)
+                if isinstance(node, callable_cat.CallableBox):
+                    if isinstance(cod, Ty):
+                        result = unification.unify(node.cod, cod) is not None
+                    else:
+                        result = cod(node.cod)
+                    if f.data and 'effect' in f.data:
+                        effect_fit = f.data['effect'] == node.effect or\
+                                     f.data['effect'](node.effect)
+                        result = result and effect_fit
+                    return result
+                return False
+
+            dest_mask = torch.tensor(
+                [node_predicate(node) for node in self._graph],
+                dtype=torch.bool, device=probs.device
+            )
+            return self.path_between(dom, dest_mask, probs, temperature,
+                                     min_depth, infer)
+        if isinstance(f, wiring.Sequential):
+            return functools.reduce(lambda f, g: f >> g, f.arrows, Id(f.dom))
+        if isinstance(f, wiring.Parallel):
+            return functools.reduce(lambda f, g: f @ g, f.factors, Id(Ty()))
+
+    def sample_morphism(self, diagram, probs, temperature, min_depth=2,
+                        infer={}):
         """Sample a morphism from the terminal object into a specified object
 
         :param obj: Target object
@@ -356,6 +396,10 @@ class FreeCategory(pyro.nn.PyroModule):
         :rtype: :class:`discopy.biclosed.Diagram`
         """
         with name_count():
+            return diagram.collapse(lambda f: self._sample_diagram(probs,
+                                                                   temperature,
+                                                                   min_depth,
+                                                                   infer, f))
             if obj in self._graph.nodes:
                 return self.path_between(Ty(), obj, probs, temperature,
                                          min_depth, infer)
@@ -364,7 +408,7 @@ class FreeCategory(pyro.nn.PyroModule):
             return self.path_between(src, dest, probs, temperature, min_depth,
                                      infer)
 
-    def forward(self, obj, min_depth=2, infer={}, temperature=None,
+    def forward(self, diagram, min_depth=2, infer={}, temperature=None,
                 arrow_weights=None):
         """Sample a morphism from the terminal object into a specified object
 
@@ -398,7 +442,8 @@ class FreeCategory(pyro.nn.PyroModule):
             )
 
         weights = self.diffusion_counts + self.weights_matrix(arrow_weights)
-        return self.sample_morphism(obj, weights, temperature, min_depth, infer)
+        return self.sample_morphism(diagram, weights, temperature, min_depth,
+                                    infer)
 
     def skeleton(self, skip_edges=[]):
         """Construct the skeleton graph for the underlying free category
