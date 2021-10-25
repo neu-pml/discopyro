@@ -400,13 +400,6 @@ class FreeCategory(pyro.nn.PyroModule):
                                                                    temperature,
                                                                    min_depth,
                                                                    infer, f))
-            if obj in self._graph.nodes:
-                return self.path_between(Ty(), obj, probs, temperature,
-                                         min_depth, infer)
-            entries = unification.unfold_arrow(obj)
-            src, dest = unification.fold_product(entries[:-1]), entries[-1]
-            return self.path_between(src, dest, probs, temperature, min_depth,
-                                     infer)
 
     def forward(self, diagram, min_depth=2, infer={}, temperature=None,
                 arrow_weights=None):
