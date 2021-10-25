@@ -275,16 +275,10 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: A morphism from Ty() to `obj`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        product = None
-        for ob in obj.objects:
-            diagram = wiring.Box('', Ty(), Ty(ob))
-            entry = self.sample_morphism(diagram, probs, temperature + 1,
-                                         min_depth, infer)
-            if product is None:
-                product = entry
-            else:
-                product = product @ entry
-        return product
+        boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.objects]
+        diagram = functools.reduce(lambda f, g: f @ g, boxes, wiring.Id(Ty()))
+        return self.sample_morphism(diagram, probs, temperature + 1, min_depth,
+                                    infer)
 
     @pnn.pyro_method
     def path_between(self, src, dests, probs, temperature, min_depth=0,
