@@ -277,7 +277,8 @@ class FreeCategory(pyro.nn.PyroModule):
         """
         product = None
         for ob in obj.objects:
-            entry = self.sample_morphism(Ty(ob), probs, temperature + 1,
+            diagram = wiring.Box('', Ty(), Ty(ob))
+            entry = self.sample_morphism(diagram, probs, temperature + 1,
                                          min_depth, infer)
             if product is None:
                 product = entry
