@@ -156,11 +156,12 @@ def try_unify(a, b, subst={}):
         return b, {a.name: b}
     if isinstance(b, TyVar):
         return a, {b.name: a}
-    if a.objects and b.objects:
+    if isinstance(a, Ty) and isinstance(b, Ty) and\
+       len(a.objects) == len(b.objects):
         results = [try_unify(ak, bk) for ak, bk in zip(a.objects, b.objects)]
         ty = Ty(*[ty for ty, _ in results])
         subst = functools.reduce(try_merge_substitution,
-                                 [subst for _, subst in results])
+                                 [subst for _, subst in results], subst)
         return ty, subst
     raise UnificationException(a, b)
 
@@ -214,7 +215,7 @@ def substitute(t, sub):
     """
     if isinstance(t, Under):
         return substitute(t.left, sub) >> substitute(t.right, sub)
-    if t.objects:
+    if isinstance(t, Ty):
         return Ty(*[substitute(ty, sub) for ty in t.objects])
     if isinstance(t, TyVar) and t.name in sub:
         return sub[t.name]
