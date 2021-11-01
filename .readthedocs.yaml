@@ -31,4 +31,4 @@ python:
    - requirements: docs/requirements.txt
 
 conda:
-  environment: environment.yml
+  environment: rtd_environment.yml
