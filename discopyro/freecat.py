@@ -1,5 +1,6 @@
 import collections
-from discopy.biclosed import Id, Ty, Under
+from discopy.biclosed import Id, Under
+from discopy.monoidal import Ty
 import functools
 import matplotlib.pyplot as plt
 import networkx as nx
