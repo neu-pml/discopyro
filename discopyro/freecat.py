@@ -95,7 +95,7 @@ class FreeCategory(pyro.nn.PyroModule):
                 dagger_name = '%s$^{\\dagger}$' % elem.name
                 elem = cart_closed.DaggerBox(elem.name, elem.dom, elem.cod,
                                              elem.function, lambda *args: (),
-                                             dagger_name)
+                                             dagger_name, data=elem.data)
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
