@@ -36,7 +36,7 @@ class FreeCategory(pyro.nn.PyroModule):
         self._graph = nx.DiGraph()
         self._add_object(Ty())
         for i, gen in enumerate(generators):
-            assert isinstance(gen, cart_closed.CallableBox)
+            assert isinstance(gen, cart_closed.Box)
 
             if gen.dom not in self._graph:
                 self._add_object(gen.dom)
@@ -48,7 +48,7 @@ class FreeCategory(pyro.nn.PyroModule):
 
             if isinstance(gen.function, nn.Module):
                 self.add_module('generator_%d' % i, gen.function)
-            if isinstance(gen, cart_closed.CallableDaggerBox):
+            if isinstance(gen, cart_closed.DaggerBox):
                 dagger = gen.dagger()
                 if isinstance(dagger.function, nn.Module):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
@@ -57,14 +57,13 @@ class FreeCategory(pyro.nn.PyroModule):
             self._graph.nodes[obj]['object_index'] = i
 
         for i, elem in enumerate(global_elements):
-            assert isinstance(elem, cart_closed.CallableBox)
+            assert isinstance(elem, cart_closed.Box)
             assert elem.dom == Ty()
-            if not isinstance(elem, cart_closed.CallableDaggerBox):
+            if not isinstance(elem, cart_closed.DaggerBox):
                 dagger_name = '%s$^{\\dagger}$' % elem.name
-                elem = cart_closed.CallableDaggerBox(elem.name, elem.dom,
-                                                     elem.cod, elem.function,
-                                                     lambda *args: (),
-                                                     dagger_name)
+                elem = cart_closed.DaggerBox(elem.name, elem.dom, elem.cod,
+                                             elem.function, lambda *args: (),
+                                             dagger_name)
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
@@ -127,7 +126,7 @@ class FreeCategory(pyro.nn.PyroModule):
         if isinstance(arrow.function, nn.Module):
             for parameter in arrow.function.parameters():
                 params += parameter.numel()
-        if isinstance(arrow, cart_closed.CallableDaggerBox):
+        if isinstance(arrow, cart_closed.DaggerBox):
             dagger = arrow.dagger()
             if isinstance(dagger.function, nn.Module):
                 for parameter in dagger.function.parameters():
@@ -215,7 +214,7 @@ class FreeCategory(pyro.nn.PyroModule):
         :rtype: list
         """
         return [node for node in self._graph
-                if isinstance(node, cart_closed.CallableBox)]
+                if isinstance(node, cart_closed.Box)]
 
     @property
     def macros(self):
@@ -225,7 +224,7 @@ class FreeCategory(pyro.nn.PyroModule):
         :rtype: list
         """
         return [node for node in self._graph if not isinstance(node, Ty) and\
-                not isinstance(node, cart_closed.CallableBox)]
+                not isinstance(node, cart_closed.Box)]
 
     @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
@@ -330,7 +329,7 @@ class FreeCategory(pyro.nn.PyroModule):
                                     infer=infer)
 
                 gen, cod = generators[viables[g_idx.item()]]
-                if isinstance(gen, cart_closed.CallableBox):
+                if isinstance(gen, cart_closed.Box):
                     morphism = gen
                 else:
                     morphism = gen(probs, temperature,

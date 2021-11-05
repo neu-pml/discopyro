@@ -2,14 +2,15 @@
 :class:`discopy.cartesian.Function` categories
 """
 
-from discopy.biclosed import Box, Diagram, Functor
+import discopy.biclosed as biclosed
+from discopy.biclosed import Diagram, Functor
 from discopy.cartesian import Function
 from discopy.cat import Arrow
 from discopy.rigid import PRO
 
 from . import unification
 
-class CallableBox(Box):
+class Box(biclosed.Box):
     """Box that supports functors into Cartesian categories of Python functions
 
     :param str name: Name of the box
@@ -43,7 +44,7 @@ class CallableBox(Box):
         :rtype: str
         """
         function_rep = repr(self.function) if self.function else ''
-        return "CallableBox(name={}, dom={}, cod={}, function={})".format(
+        return "Box(name={}, dom={}, cod={}, function={})".format(
             repr(self.name), self.dom, self.cod, function_rep
         )
 
@@ -55,7 +56,7 @@ class CallableBox(Box):
         :return: Whether the two boxes are equal
         :rtype: bool
         """
-        if isinstance(other, CallableBox):
+        if isinstance(other, Box):
             basics = all(self.__getattribute__(x) == other.__getattribute__(x)
                          for x in ['name', 'dom', 'cod', 'function'])
             subst = unification.unifier(self.typed_dom, other.typed_dom)
@@ -73,7 +74,7 @@ class CallableBox(Box):
         """
         return hash(repr(self))
 
-class CallableDaggerBox(CallableBox):
+class DaggerBox(Box):
     """Box with dagger that supports functors into Cartesian dagger categories
     of Python functions
 
@@ -100,7 +101,7 @@ class CallableDaggerBox(CallableBox):
         """The dagger of a box
 
         :return: A callable box inverse/dagger to this one
-        :rtype: :class:`CallableDaggerBox`
+        :rtype: :class:`DaggerBox`
         """
         return type(self)(
             name=self._dagger_name, dom=self.cod, cod=self.dom,
@@ -115,7 +116,7 @@ class CallableDaggerBox(CallableBox):
         :rtype: str
         """
         function_rep = repr(self.function) if self.function else ''
-        return "CallableDaggerBox(name={}, dom={}, cod={}, function={})".format(
+        return "DaggerBox(name={}, dom={}, cod={}, function={})".format(
             repr(self.name), self.dom, self.cod, function_rep
         )
 
@@ -127,7 +128,7 @@ class CallableDaggerBox(CallableBox):
         :return: Whether the two boxes are equal
         :rtype: bool
         """
-        if isinstance(other, CallableBox):
+        if isinstance(other, Box):
             basics = all(self.__getattribute__(x) == other.__getattribute__(x)
                          for x in ['name', 'dom', 'cod', 'function',
                                    '_dagger_function', '_dagger_name',
@@ -172,13 +173,13 @@ class DaggerFunction(Function):
                           self.function)
 
 def functionize(f):
-    """Transform a :class:`CallableBox` into a
-    :class:`discopy.cartesian.Function`, including accounting for its dagger
+    """Transform a :class:`Box` into a :class:`discopy.cartesian.Function`,
+       including accounting for its dagger
 
     :param f: A box supporting a callable function, potentially with a dagger
-    :type f: :class:`CallableBox`
+    :type f: :class:`Box`
     """
-    if isinstance(f, CallableDaggerBox):
+    if isinstance(f, DaggerBox):
         dagger_function = f.dagger().function
         return DaggerFunction(len(f.dom), len(f.cod), f.function,
                               dagger_function)
