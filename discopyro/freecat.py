@@ -52,6 +52,15 @@ def _node_fits_wiring_box(node, box):
         return _gen_fits_wiring_box(node, box)
     return False
 
+def _data_fits_spec(data, spec):
+    fits = []
+    for k, v in spec.items():
+        if k in data:
+            fits.append(v(data[k]) if callable(v) else data[k] == v)
+        else:
+            fits.append(True)
+    return all(fits)
+
 class FreeCategory(pyro.nn.PyroModule):
     """Pyro module representing a free category as a graph, and implementing
     stochastic shortest-paths sampling of morphisms.
