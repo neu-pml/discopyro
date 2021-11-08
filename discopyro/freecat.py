@@ -121,8 +121,8 @@ class FreeCategory(pyro.nn.PyroModule):
             if isinstance(obj, Under):
                 src, dest = obj.left, obj.right
                 def macro(probs, temp, min_depth, infer, l=src, r=dest):
-                    return self.path_between(l, r, probs, temp, min_depth,
-                                             infer)
+                    box = wiring.Box('', l, r, data={})
+                    return self.path_through(box, probs, temp, min_depth, infer)
             else:
                 def macro(probs, temp, min_depth, infer, obj=obj):
                     return self.product_arrow(obj, probs, temp, min_depth,
@@ -320,8 +320,7 @@ class FreeCategory(pyro.nn.PyroModule):
                                     infer)
 
     @pnn.pyro_method
-    def path_between(self, src, dests, probs, temperature, min_depth=0,
-                     infer={}):
+    def path_through(self, box, probs, temperature, min_depth=0, infer={}):
         """Sample a morphism from object `src` to object `dest_mask`
 
         :param src: Source object, the desired morphism's domain
@@ -340,34 +339,41 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: A morphism from `src` to `dest_mask`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        assert dests.any()
+        dest = self._index(box.cod)
 
-        location = src
-        gen = None
-        path = Id(src)
+        location = box.dom
+        path = Id(box.dom)
+        path_data = box.data
         with pyro.markov():
-            while self._index(location) not in dests and\
-                  (gen is None or self._index(gen) not in dests):
+            while location != box.cod:
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
                     generators = [(g, cod) for (g, cod) in generators
-                                  if self._index(cod) not in dests]
+                                  if self._index(cod) != box.cod]
+                if path_data:
+                    generators = [(g, cod) for g, cod in generators
+                                  if not isinstance(g, cart_closed.Box) or
+                                  _data_fits_spec(g.data, path_data)]
                 gens = [self._index(g) for (g, _) in generators]
 
-                dest_probs = probs[gens][:, dests].sum(dim=-1)
+                dest_probs = probs[gens][:, dest]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
                 selection_probs = F.softmax(
                     dest_probs[viables].log() / (temperature + 1e-10),
                     dim=-1
                 )
                 generators_categorical = dist.Categorical(selection_probs)
-                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dests),
+                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
                 gen, cod = generators[viables[g_idx.item()]]
                 if isinstance(gen, cart_closed.Box):
                     morphism = gen
+                    if gen.data and path_data:
+                        for k, v in path_data.items():
+                            if not callable(v):
+                                path_data[k] = v[1:]
                 else:
                     morphism = gen(probs, temperature,
                                    min_depth - len(path) - 1, infer)
@@ -380,15 +386,7 @@ class FreeCategory(pyro.nn.PyroModule):
         if isinstance(f, wiring.Id):
             return Id(f.dom)
         if isinstance(f, wiring.Box):
-            assert isinstance(f.dom, Ty)
-
-            dests = torch.tensor(
-                [self._graph.nodes[node]['index'] for node in self._graph
-                 if _node_fits_wiring_box(node, f)],
-                dtype=torch.long, device=probs.device
-            )
-            return self.path_between(f.dom, dests, probs, temperature,
-                                     min_depth, infer)
+            return self.path_through(f, probs, temperature, min_depth, infer)
         if isinstance(f, wiring.Sequential):
             return functools.reduce(lambda f, g: f >> g, f.arrows, Id(f.dom))
         if isinstance(f, wiring.Parallel):
