@@ -22,36 +22,6 @@ from . import cart_closed, unification
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
-def _ty_fits_wiring_box(ty, cod):
-    if isinstance(cod, Ty):
-        return unification.unify(ty, cod) is not None
-    return cod(ty)
-
-def _gen_fits_wiring_box(gen, box):
-    if isinstance(box.cod, Ty):
-        cod_fits = unification.unify(gen.cod, box.cod) is not None
-    else:
-        cod_fits = box.cod(gen.cod)
-
-    box_data = box.data if box.data else {}
-    data_fits = []
-    for k, v in box_data.items():
-        if k in gen.data:
-            if callable(v):
-                data_fits.append(v(gen.data[k]))
-            else:
-                data_fits.append(gen.data[k] == v)
-        else:
-            data_fits.append(False)
-    return cod_fits and all(data_fits)
-
-def _node_fits_wiring_box(node, box):
-    if isinstance(node, Ty) and not box.data:
-        return _ty_fits_wiring_box(node, box.cod)
-    if isinstance(node, cart_closed.Box):
-        return _gen_fits_wiring_box(node, box)
-    return False
-
 def _data_fits_spec(data, spec):
     fits = []
     for k, v in spec.items():
@@ -382,16 +352,6 @@ class FreeCategory(pyro.nn.PyroModule):
 
         return path
 
-    def _wiring_falg(self, probs, temperature, min_depth, infer, f):
-        if isinstance(f, wiring.Id):
-            return Id(f.dom)
-        if isinstance(f, wiring.Box):
-            return self.path_through(f, probs, temperature, min_depth, infer)
-        if isinstance(f, wiring.Sequential):
-            return functools.reduce(lambda f, g: f >> g, f.arrows, Id(f.dom))
-        if isinstance(f, wiring.Parallel):
-            return functools.reduce(lambda f, g: f @ g, f.factors, Id(Ty()))
-
     def sample_morphism(self, diagram, probs, temperature, min_depth=2,
                         infer={}):
         """Sample a morphism from the terminal object into a specified object
@@ -409,11 +369,14 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: A morphism from Ty() to `obj`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
+
         with name_count():
-            return diagram.collapse(lambda f: self._wiring_falg(probs,
-                                                                temperature,
-                                                                min_depth,
-                                                                infer, f))
+            functor = wiring.Functor(lambda t: t,
+                                     lambda f: self.path_through(f, probs,
+                                                                 temperature,
+                                                                 min_depth,
+                                                                 infer))
+            return functor(diagram)
 
     def forward(self, diagram, min_depth=2, infer={}, temperature=None,
                 arrow_weights=None):
