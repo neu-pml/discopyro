@@ -283,6 +283,9 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: A morphism from `src` to `dest_mask`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
+        if box.cod == Ty():
+            return cart_closed.Box(box.name, box.dom, box.cod, lambda *xs: (),
+                                   data=box.data)
         dest = self._index(box.cod)
 
         location = box.dom
