@@ -70,11 +70,6 @@ class FreeCategory(pyro.nn.PyroModule):
         for i, elem in enumerate(global_elements):
             assert isinstance(elem, cart_closed.Box)
             assert elem.dom == Ty()
-            if not isinstance(elem, cart_closed.DaggerBox):
-                dagger_name = '%s$^{\\dagger}$' % elem.name
-                elem = cart_closed.DaggerBox(elem.name, elem.dom, elem.cod,
-                                             elem.function, lambda *args: (),
-                                             dagger_name, data=elem.data)
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
@@ -83,9 +78,11 @@ class FreeCategory(pyro.nn.PyroModule):
 
             if isinstance(elem.function, nn.Module):
                 self.add_module('global_element_%d' % i, elem.function)
-            dagger = elem.dagger()
-            if isinstance(dagger.function, nn.Module):
-                self.add_module('global_element_%d_dagger' % i, dagger.function)
+            if isinstance(elem, cart_closed.DaggerBox):
+                dagger = elem.dagger()
+                if isinstance(dagger.function, nn.Module):
+                    self.add_module('global_element_%d_dagger' % i,
+                                    dagger.function)
 
         for i, obj in enumerate(self.compound_obs):
             if isinstance(obj, Under):
