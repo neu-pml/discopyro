@@ -310,7 +310,9 @@ class FreeCategory(pyro.nn.PyroModule):
                     dim=-1
                 )
                 generators_categorical = dist.Categorical(selection_probs)
-                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
+                g_idx = pyro.sample('path_step{%s -> %s, %s}' % (box.dom,
+                                                                 box.cod,
+                                                                 location),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
