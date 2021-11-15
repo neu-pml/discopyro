@@ -324,7 +324,7 @@ class FreeCategory(pyro.nn.PyroModule):
                             if not callable(v):
                                 path_data[k] = v[1:]
                 else:
-                    morphism = gen(probs, temperature,
+                    morphism = gen(probs, temperature + 1,
                                    min_depth - len(path) - 1, infer)
                 path = path >> morphism
                 location = cod
