@@ -331,6 +331,7 @@ class FreeCategory(pyro.nn.PyroModule):
 
         return path
 
+    @pnn.pyro_method
     def sample_morphism(self, diagram, probs, temperature, min_depth=2,
                         infer={}):
         """Sample a morphism from the terminal object into a specified object
