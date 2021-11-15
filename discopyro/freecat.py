@@ -86,14 +86,13 @@ class FreeCategory(pyro.nn.PyroModule):
 
         for i, obj in enumerate(self.compound_obs):
             if isinstance(obj, Under):
-                src, dest = obj.left, obj.right
-                def macro(probs, temp, min_depth, infer, l=src, r=dest):
-                    box = wiring.Box('', l, r, data={})
-                    return self.path_through(box, probs, temp, min_depth, infer)
+                box = wiring.Box('', obj.left, obj.right, data={})
+                macro = functools.partial(self.sample_morphism, box)
             else:
-                def macro(probs, temp, min_depth, infer, obj=obj):
-                    return self.product_arrow(obj, probs, temp, min_depth,
-                                              infer)
+                boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.objects]
+                diagram = functools.reduce(lambda f, g: f @ g, boxes,
+                                           wiring.Id(Ty()))
+                macro = functools.partial(self.sample_morphism, diagram)
 
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
@@ -263,28 +262,6 @@ class FreeCategory(pyro.nn.PyroModule):
                                         weights[i] * arrow_weights[k])
 
         return weights
-
-    @pnn.pyro_method
-    def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
-        """Sample a morphism from the terminal object into a Cartesian product
-
-        :param obj: Cartesian product object to target
-        :type obj: :class:`discopy.biclosed.Ty`
-        :param probs: Matrix of long-run arrival probabilities in the graph
-        :type probs: :class:`torch.Tensor`
-        :param temperature: Temperature (scale parameter) for sampling morphisms
-        :type temperature: :class:`torch.Tensor`
-
-        :param int min_depth: Minimum depth of sequential composition
-        :param dict infer: Inference parameters for `pyro.sample()`
-
-        :returns: A morphism from Ty() to `obj`
-        :rtype: :class:`discopy.biclosed.Diagram`
-        """
-        boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.objects]
-        diagram = functools.reduce(lambda f, g: f @ g, boxes, wiring.Id(Ty()))
-        return self.sample_morphism(diagram, probs, temperature + 1, min_depth,
-                                    infer)
 
     @pnn.pyro_method
     def path_through(self, box, probs, temperature, min_depth=0, infer={}):
