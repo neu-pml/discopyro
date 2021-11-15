@@ -355,7 +355,8 @@ class FreeCategory(pyro.nn.PyroModule):
                                      lambda f: self.path_through(f, probs,
                                                                  temperature,
                                                                  min_depth,
-                                                                 infer))
+                                                                 infer),
+                                     ar_factory=cart_closed.Box)
             return functor(diagram)
 
     def forward(self, diagram, min_depth=2, infer={}, temperature=None,
