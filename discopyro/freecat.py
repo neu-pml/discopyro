@@ -1,5 +1,7 @@
 import collections
-from discopy.biclosed import Id, Ty, Under
+from discopy.biclosed import Id, Under
+from discopy.monoidal import Ty
+import discopy.wiring as wiring
 import functools
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -19,6 +21,15 @@ import torch.nn.functional as F
 from . import cart_closed, unification
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
+
+def _data_fits_spec(data, spec):
+    fits = []
+    for k, v in spec.items():
+        if k in data:
+            fits.append(v(data[k]) if callable(v) else data[k] == v)
+        else:
+            fits.append(True)
+    return all(fits)
 
 class FreeCategory(pyro.nn.PyroModule):
     """Pyro module representing a free category as a graph, and implementing
@@ -59,11 +70,6 @@ class FreeCategory(pyro.nn.PyroModule):
         for i, elem in enumerate(global_elements):
             assert isinstance(elem, cart_closed.Box)
             assert elem.dom == Ty()
-            if not isinstance(elem, cart_closed.DaggerBox):
-                dagger_name = '%s$^{\\dagger}$' % elem.name
-                elem = cart_closed.DaggerBox(elem.name, elem.dom, elem.cod,
-                                             elem.function, lambda *args: (),
-                                             dagger_name)
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
@@ -72,20 +78,21 @@ class FreeCategory(pyro.nn.PyroModule):
 
             if isinstance(elem.function, nn.Module):
                 self.add_module('global_element_%d' % i, elem.function)
-            dagger = elem.dagger()
-            if isinstance(dagger.function, nn.Module):
-                self.add_module('global_element_%d_dagger' % i, dagger.function)
+            if isinstance(elem, cart_closed.DaggerBox):
+                dagger = elem.dagger()
+                if isinstance(dagger.function, nn.Module):
+                    self.add_module('global_element_%d_dagger' % i,
+                                    dagger.function)
 
         for i, obj in enumerate(self.compound_obs):
             if isinstance(obj, Under):
-                src, dest = obj.left, obj.right
-                def macro(probs, temp, min_depth, infer, l=src, r=dest):
-                    return self.path_between(l, r, probs, temp, min_depth,
-                                             infer)
+                box = wiring.Box('', obj.left, obj.right, data={})
+                macro = functools.partial(self.sample_morphism, box)
             else:
-                def macro(probs, temp, min_depth, infer, obj=obj):
-                    return self.product_arrow(obj, probs, temp, min_depth,
-                                              infer)
+                boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.objects]
+                diagram = functools.reduce(lambda f, g: f @ g, boxes,
+                                           wiring.Id(Ty()))
+                macro = functools.partial(self.sample_morphism, diagram)
 
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
@@ -257,41 +264,13 @@ class FreeCategory(pyro.nn.PyroModule):
         return weights
 
     @pnn.pyro_method
-    def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
-        """Sample a morphism from the terminal object into a Cartesian product
-
-        :param obj: Cartesian product object to target
-        :type obj: :class:`discopy.biclosed.Ty`
-        :param probs: Matrix of long-run arrival probabilities in the graph
-        :type probs: :class:`torch.Tensor`
-        :param temperature: Temperature (scale parameter) for sampling morphisms
-        :type temperature: :class:`torch.Tensor`
-
-        :param int min_depth: Minimum depth of sequential composition
-        :param dict infer: Inference parameters for `pyro.sample()`
-
-        :returns: A morphism from Ty() to `obj`
-        :rtype: :class:`discopy.biclosed.Diagram`
-        """
-        product = None
-        for ob in obj.objects:
-            entry = self.sample_morphism(Ty(ob), probs, temperature + 1,
-                                         min_depth, infer)
-            if product is None:
-                product = entry
-            else:
-                product = product @ entry
-        return product
-
-    @pnn.pyro_method
-    def path_between(self, src, dest, probs, temperature, min_depth=0,
-                     infer={}):
-        """Sample a morphism from object `src` to object `dest`
+    def path_through(self, box, probs, temperature, min_depth=0, infer={}):
+        """Sample a morphism from object `src` to object `dest_mask`
 
         :param src: Source object, the desired morphism's domain
         :type src: :class:`discopy.biclosed.Ty`
-        :param dest: Destination object, the desired morphism's codomain
-        :type dest: :class:`discopy.biclosed.Ty`
+        :param dest_mask: Destination object, the desired morphism's codomain
+        :type dest_mask: :class:`discopy.biclosed.Ty`
 
         :param probs: Matrix of long-run arrival probabilities in the graph
         :type probs: :class:`torch.Tensor`
@@ -301,45 +280,60 @@ class FreeCategory(pyro.nn.PyroModule):
         :param int min_depth: Minimum depth of sequential composition
         :param dict infer: Inference parameters for `pyro.sample()`
 
-        :returns: A morphism from `src` to `dest`
+        :returns: A morphism from `src` to `dest_mask`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        assert dest != Ty()
+        if box.cod == Ty():
+            return cart_closed.Box(box.name, box.dom, box.cod, lambda *xs: (),
+                                   data=box.data)
+        dest = self._index(box.cod)
 
-        location = src
-        path = Id(src)
-        dest_index = self._index(dest)
+        location = box.dom
+        path = Id(box.dom)
+        path_data = box.data
         with pyro.markov():
-            while location != dest:
+            while location != box.cod:
                 generators = self._object_generators(location, True)
                 if len(path) + 1 < min_depth:
                     generators = [(g, cod) for (g, cod) in generators
-                                  if cod != dest]
+                                  if self._index(cod) != box.cod]
+                if path_data:
+                    generators = [(g, cod) for g, cod in generators
+                                  if not isinstance(g, cart_closed.Box) or
+                                  _data_fits_spec(g.data, path_data)]
                 gens = [self._index(g) for (g, _) in generators]
 
-                dest_probs = probs[gens][:, dest_index]
+                dest_probs = probs[gens][:, dest]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
                 selection_probs = F.softmax(
                     dest_probs[viables].log() / (temperature + 1e-10),
                     dim=-1
                 )
                 generators_categorical = dist.Categorical(selection_probs)
-                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
+                g_idx = pyro.sample('path_step{%s -> %s, %s}' % (box.dom,
+                                                                 box.cod,
+                                                                 location),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
                 gen, cod = generators[viables[g_idx.item()]]
                 if isinstance(gen, cart_closed.Box):
                     morphism = gen
+                    if gen.data and path_data:
+                        for k, v in path_data.items():
+                            if not callable(v):
+                                path_data[k] = v[1:]
                 else:
-                    morphism = gen(probs, temperature,
+                    morphism = gen(probs, temperature + 1,
                                    min_depth - len(path) - 1, infer)
                 path = path >> morphism
                 location = cod
 
         return path
 
-    def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
+    @pnn.pyro_method
+    def sample_morphism(self, diagram, probs, temperature, min_depth=2,
+                        infer={}):
         """Sample a morphism from the terminal object into a specified object
 
         :param obj: Target object
@@ -355,16 +349,17 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: A morphism from Ty() to `obj`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        with name_count():
-            if obj in self._graph.nodes:
-                return self.path_between(Ty(), obj, probs, temperature,
-                                         min_depth, infer)
-            entries = unification.unfold_arrow(obj)
-            src, dest = unification.fold_product(entries[:-1]), entries[-1]
-            return self.path_between(src, dest, probs, temperature, min_depth,
-                                     infer)
 
-    def forward(self, obj, min_depth=2, infer={}, temperature=None,
+        with name_count():
+            functor = wiring.Functor(lambda t: t,
+                                     lambda f: self.path_through(f, probs,
+                                                                 temperature,
+                                                                 min_depth,
+                                                                 infer),
+                                     ar_factory=cart_closed.Box)
+            return functor(diagram)
+
+    def forward(self, diagram, min_depth=2, infer={}, temperature=None,
                 arrow_weights=None):
         """Sample a morphism from the terminal object into a specified object
 
@@ -398,7 +393,8 @@ class FreeCategory(pyro.nn.PyroModule):
             )
 
         weights = self.diffusion_counts + self.weights_matrix(arrow_weights)
-        return self.sample_morphism(obj, weights, temperature, min_depth, infer)
+        return self.sample_morphism(diagram, weights, temperature, min_depth,
+                                    infer)
 
     def skeleton(self, skip_edges=[]):
         """Construct the skeleton graph for the underlying free category
