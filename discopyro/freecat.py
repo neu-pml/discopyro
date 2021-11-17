@@ -342,7 +342,7 @@ class FreeCategory(pyro.nn.PyroModule):
                                      ar_factory=cart_closed.Box)
             return functor(diagram)
 
-    def forward(self, diagram, min_depth=2, infer={}, temperature=None,
+    def forward(self, diagram, min_depth=0, infer={}, temperature=None,
                 arrow_weights=None):
         """Sample a morphism from the terminal object into a specified object
 
