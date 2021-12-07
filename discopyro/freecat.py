@@ -299,11 +299,9 @@ class FreeCategory(pyro.nn.PyroModule):
 
                 dest_probs = probs[gens, dest]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
-                selection_probs = F.softmax(
-                    dest_probs[viables].log() / (temperature + 1e-10),
-                    dim=-1
-                )
-                generators_categorical = dist.Categorical(selection_probs)
+                viable_logits = dest_probs[viables].log() /\
+                                (temperature + 1e-10)
+                generators_categorical = dist.Categorical(logits=viable_logits)
                 g_idx = pyro.sample('path_step{%s -> %s, %s}' % (box.dom,
                                                                  box.cod,
                                                                  location),
