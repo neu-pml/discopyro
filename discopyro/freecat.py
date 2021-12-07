@@ -110,13 +110,17 @@ class FreeCategory(pyro.nn.PyroModule):
         adjacency_weights = torch.clone(self.adjacency).detach()
         arrow_indices = []
         for arrow in self.ars + self.macros:
-            i = self._index(arrow)
+            dom = self._dom(arrow)
+            cod = self._cod(arrow)
+            i, j = self._index(arrow), self._index(cod)
+
             arrow_indices.append(i)
             dom_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
-                           for ob in self._dom(arrow).objects)
+                           for ob in dom.objects)
             cod_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
-                           for ob in self._cod(arrow).objects)
-            adjacency_weights[i] *= (dom_dims + 1) / (cod_dims + 1)
+                           for ob in cod.objects)
+            adjacency_weights[i, j] *= (cod_dims + 1) / (dom_dims + 1)
+
         self.register_buffer('arrow_indices', torch.tensor(arrow_indices,
                                                            dtype=torch.long),
                              persistent=False)
