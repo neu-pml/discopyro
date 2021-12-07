@@ -137,26 +137,6 @@ class FreeCategory(pyro.nn.PyroModule):
             return arrow
         return list(self._graph.out_edges(arrow))[0][1]
 
-    def _arrow_parameters(self, arrow):
-        """Count up the number of parameters a generating morphism has, if its
-           implementing function happens to be a :class:`torch.nn.Module`
-
-           :param arrow: A generating morphism within the free category
-
-           :returns: Number of parameters in the arrow (including its dagger)
-           :rtype: int
-        """
-        params = 0
-        if isinstance(arrow.function, nn.Module):
-            for parameter in arrow.function.parameters():
-                params += parameter.numel()
-        if isinstance(arrow, cart_closed.DaggerBox):
-            dagger = arrow.dagger()
-            if isinstance(dagger.function, nn.Module):
-                for parameter in dagger.function.parameters():
-                    params += parameter.numel()
-        return params
-
     def _add_object(self, obj):
         """Add an object as a node to the graph representing the free category
 
