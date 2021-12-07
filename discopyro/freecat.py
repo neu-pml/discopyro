@@ -107,7 +107,7 @@ class FreeCategory(pyro.nn.PyroModule):
         self.register_buffer('adjacency',
                              torch.from_numpy(nx.to_numpy_array(self._graph)),
                              persistent=False)
-        adjacency_weights = self.adjacency
+        adjacency_weights = torch.clone(self.adjacency).detach()
         arrow_indices = []
         for arrow in self.ars + self.macros:
             i = self._index(arrow)
