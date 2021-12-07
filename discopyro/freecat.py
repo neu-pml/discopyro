@@ -12,24 +12,14 @@ import pyro.distributions as dist
 import pyro.nn as pnn
 import pyvis
 import pyvis.network
-import scipy.linalg
 import torch
 import torch.distributions.constraints as constraints
 import torch.nn as nn
 import torch.nn.functional as F
 
-from . import cart_closed, unification
+from . import cart_closed, unification, util
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
-
-def _data_fits_spec(data, spec):
-    fits = []
-    for k, v in spec.items():
-        if k in data:
-            fits.append(v(data[k]) if callable(v) else data[k] == v)
-        else:
-            fits.append(True)
-    return all(fits)
 
 class FreeCategory(pyro.nn.PyroModule):
     """Pyro module representing a free category as a graph, and implementing
@@ -113,11 +103,9 @@ class FreeCategory(pyro.nn.PyroModule):
         self.temperature_beta = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
 
-        adjacency_weights = torch.from_numpy(nx.to_numpy_matrix(self._graph))
-        for arrow in self.ars:
-            i = self._index(arrow)
-            adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
-        self.register_buffer('diffusion_counts', adjacency_weights.matrix_exp(),
+        self.register_buffer('adjacency',
+                             torch.from_numpy(nx.to_numpy_matrix(self._graph)))
+        self.register_buffer('diffusions', self.adjacency.matrix_exp(),
                              persistent=False)
 
     def _arrow_parameters(self, arrow):
@@ -172,7 +160,7 @@ class FreeCategory(pyro.nn.PyroModule):
         """
         return (self.arrow_weights.shape, self.temperature_alpha.shape * 2)
 
-    def _object_generators(self, obj, forward=True):
+    def _object_generators(self, obj, forward=True, pred=None):
         """Return a list of generators flowing into or out of an object
 
         :param obj: The object in question
@@ -185,12 +173,11 @@ class FreeCategory(pyro.nn.PyroModule):
         """
         edges = self._graph.out_edges if forward else self._graph.in_edges
         dir_index = 1 if forward else 0
-        generators = []
         for edge in edges(obj):
             gen = edge[dir_index]
-            counterpart = list(edges(gen))[0][dir_index]
-            generators.append((gen, counterpart))
-        return generators
+            cod = list(edges(gen))[0][dir_index]
+            if pred is None or pred(gen, cod):
+                yield (gen, cod, self._index(gen), self._index(gen, True))
 
     @property
     def obs(self):
@@ -293,17 +280,13 @@ class FreeCategory(pyro.nn.PyroModule):
         path_data = box.data
         with pyro.markov():
             while location != box.cod:
-                generators = self._object_generators(location, True)
-                if len(path) + 1 < min_depth:
-                    generators = [(g, cod) for (g, cod) in generators
-                                  if self._index(cod) != box.cod]
-                if path_data:
-                    generators = [(g, cod) for g, cod in generators
-                                  if not isinstance(g, cart_closed.Box) or
-                                  _data_fits_spec(g.data, path_data)]
-                gens = [self._index(g) for (g, _) in generators]
+                pred = util.GeneratorPredicate(len(path), min_depth, path_data,
+                                               box.cod)
+                generators = list(self._object_generators(location, True, pred))
+                gens = torch.tensor([g for (_, _, g, _) in generators],
+                                    dtype=torch.long).to(device=probs.device)
 
-                dest_probs = probs[gens][:, dest]
+                dest_probs = probs[gens, dest]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
                 selection_probs = F.softmax(
                     dest_probs[viables].log() / (temperature + 1e-10),
@@ -316,7 +299,7 @@ class FreeCategory(pyro.nn.PyroModule):
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
-                gen, cod = generators[viables[g_idx.item()]]
+                gen, cod, _, _ = generators[viables[g_idx.item()]]
                 if isinstance(gen, cart_closed.Box):
                     morphism = gen
                     if gen.data and path_data:
@@ -332,7 +315,7 @@ class FreeCategory(pyro.nn.PyroModule):
         return path
 
     @pnn.pyro_method
-    def sample_morphism(self, diagram, probs, temperature, min_depth=2,
+    def sample_morphism(self, diagram, probs, temperature, min_depth=0,
                         infer={}):
         """Sample a morphism from the terminal object into a specified object
 
@@ -359,7 +342,7 @@ class FreeCategory(pyro.nn.PyroModule):
                                      ar_factory=cart_closed.Box)
             return functor(diagram)
 
-    def forward(self, diagram, min_depth=2, infer={}, temperature=None,
+    def forward(self, diagram, min_depth=0, infer={}, temperature=None,
                 arrow_weights=None):
         """Sample a morphism from the terminal object into a specified object
 
@@ -392,7 +375,7 @@ class FreeCategory(pyro.nn.PyroModule):
                            self.arrow_weight_betas).to_event(1)
             )
 
-        weights = self.diffusion_counts + self.weights_matrix(arrow_weights)
+        weights = self.diffusions + self.weights_matrix(arrow_weights)
         return self.sample_morphism(diagram, weights, temperature, min_depth,
                                     infer)
 
