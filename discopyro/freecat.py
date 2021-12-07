@@ -175,7 +175,7 @@ class FreeCategory(pyro.nn.PyroModule):
         dir_index = 1 if forward else 0
         for edge in edges(obj):
             gen = edge[dir_index]
-            cod= list(edges(gen))[0][dir_index]
+            cod = list(edges(gen))[0][dir_index]
             if pred is None or pred(gen, cod):
                 yield (gen, cod, self._index(gen), self._index(gen, True))
 
