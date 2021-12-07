@@ -108,13 +108,18 @@ class FreeCategory(pyro.nn.PyroModule):
                              torch.from_numpy(nx.to_numpy_array(self._graph)),
                              persistent=False)
         adjacency_weights = self.adjacency
+        arrow_indices = []
         for arrow in self.ars + self.macros:
             i = self._index(arrow)
+            arrow_indices.append(i)
             dom_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
                            for ob in self._dom(arrow).objects)
             cod_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
                            for ob in self._cod(arrow).objects)
             adjacency_weights[i] *= (dom_dims + 1) / (cod_dims + 1)
+        self.register_buffer('arrow_indices', torch.tensor(arrow_indices,
+                                                           dtype=torch.long),
+                             persistent=False)
         self.register_buffer('diffusions', adjacency_weights.matrix_exp(),
                              persistent=False)
 
@@ -252,23 +257,9 @@ class FreeCategory(pyro.nn.PyroModule):
                   nerve of the free category.
         :rtype: :class:`torch.Tensor`
         """
-        weights = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
-            arrow_weights
-        )
-
-        for arrow in self.ars:
-            i = self._index(arrow)
-            k = self._index(arrow, arrow=True)
-            weights = weights.index_put((torch.LongTensor([i]),),
-                                        weights[i] * arrow_weights[k])
-
-        for macro in self.macros:
-            i = self._index(macro)
-            k = self._index(macro, arrow=True)
-            weights = weights.index_put((torch.LongTensor([i]),),
-                                        weights[i] * arrow_weights[k])
-
-        return weights
+        weights = arrow_weights.unsqueeze(dim=-1)
+        weights = self.adjacency[self.arrow_indices, :] * weights
+        return self.adjacency.index_put((self.arrow_indices,), weights)
 
     @pnn.pyro_method
     def path_through(self, box, probs, temperature, min_depth=0, infer={}):
