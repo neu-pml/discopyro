@@ -12,6 +12,7 @@ import pyro.distributions as dist
 import pyro.nn as pnn
 import pyvis
 import pyvis.network
+import re
 import torch
 import torch.distributions.constraints as constraints
 import torch.nn as nn
@@ -106,11 +107,25 @@ class FreeCategory(pyro.nn.PyroModule):
         self.register_buffer('adjacency',
                              torch.from_numpy(nx.to_numpy_array(self._graph)))
         adjacency_weights = self.adjacency
-        for arrow in self.ars:
+        for arrow in self.ars + self.macros:
             i = self._index(arrow)
-            adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
+            dom_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
+                           for ob in self._dom(arrow).objects)
+            cod_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
+                           for ob in self._cod(arrow).objects)
+            adjacency_weights[i] *= (dom_dims + 1) / (cod_dims + 1)
         self.register_buffer('diffusions', adjacency_weights.matrix_exp(),
                              persistent=False)
+
+    def _dom(self, arrow):
+        if isinstance(arrow, Ty):
+            return arrow
+        return list(self._graph.in_edges(arrow))[0][0]
+
+    def _cod(self, arrow):
+        if isinstance(arrow, Ty):
+            return arrow
+        return list(self._graph.out_edges(arrow))[0][1]
 
     def _arrow_parameters(self, arrow):
         """Count up the number of parameters a generating morphism has, if its
