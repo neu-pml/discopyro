@@ -104,8 +104,12 @@ class FreeCategory(pyro.nn.PyroModule):
                                               constraint=constraints.positive)
 
         self.register_buffer('adjacency',
-                             torch.from_numpy(nx.to_numpy_matrix(self._graph)))
-        self.register_buffer('diffusions', self.adjacency.matrix_exp(),
+                             torch.from_numpy(nx.to_numpy_array(self._graph)))
+        adjacency_weights = self.adjacency
+        for arrow in self.ars:
+            i = self._index(arrow)
+            adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
+        self.register_buffer('diffusions', adjacency_weights.matrix_exp(),
                              persistent=False)
 
     def _arrow_parameters(self, arrow):
