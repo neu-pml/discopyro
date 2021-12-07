@@ -286,7 +286,7 @@ class FreeCategory(pyro.nn.PyroModule):
                 gens = torch.tensor([g for (_, _, g, _) in generators],
                                     dtype=torch.long).to(device=probs.device)
 
-                dest_probs = probs[nodes][:, dest]
+                dest_probs = probs[gens, dest]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
                 selection_probs = F.softmax(
                     dest_probs[viables].log() / (temperature + 1e-10),
