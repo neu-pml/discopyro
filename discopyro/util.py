@@ -1,4 +1,11 @@
+from discopy import Ty
 from . import cart_closed
+
+def node_name(node):
+    if isinstance(node, (cart_closed.Box, Ty)):
+        return str(node)
+    else:
+        return 'macro[%d]' % id(node)
 
 def data_fits_spec(data, spec):
     fits = []
