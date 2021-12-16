@@ -4,6 +4,17 @@ from discopy.monoidal import Ty
 import discopy.wiring as wiring
 import functools
 import matplotlib.pyplot as plt
+
+plt.rcParams.update(
+    {
+        'text.usetex': True,
+        'text.latex.preamble': r'\usepackage{amsfonts}',
+        'font.family': 'serif',
+        'mathtext.fontset': 'stix',
+    }
+)
+
+
 import networkx as nx
 import os.path
 import pyro
@@ -390,12 +401,12 @@ class FreeCategory(pyro.nn.PyroModule):
             if 'arrow_index' in self._graph.nodes[node]:
                 k = self._graph.nodes[node]['arrow_index']
                 props['weight'] = arrow_weights[k].item()
-            skeleton.add_node(str(node), **props)
+            skeleton.add_node(util.node_name(node), **props)
 
         for u, v in self._graph.edges:
             if (u, v) in skip_edges:
                 continue
-            skeleton.add_edge(str(u), str(v))
+            skeleton.add_edge(util.node_name(u), util.node_name(v))
         return skeleton
 
     def draw(self, skip_edges=[], filename=None, notebook=False):
