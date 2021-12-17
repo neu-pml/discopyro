@@ -4,6 +4,17 @@ from discopy.monoidal import Ty
 import discopy.wiring as wiring
 import functools
 import matplotlib.pyplot as plt
+
+plt.rcParams.update(
+    {
+        'text.usetex': True,
+        'text.latex.preamble': r'\usepackage{amsfonts}',
+        'font.family': 'serif',
+        'mathtext.fontset': 'stix',
+    }
+)
+
+
 import networkx as nx
 import os.path
 import pyro
@@ -12,6 +23,7 @@ import pyro.distributions as dist
 import pyro.nn as pnn
 import pyvis
 import pyvis.network
+import re
 import torch
 import torch.distributions.constraints as constraints
 import torch.nn as nn
@@ -104,29 +116,37 @@ class FreeCategory(pyro.nn.PyroModule):
                                               constraint=constraints.positive)
 
         self.register_buffer('adjacency',
-                             torch.from_numpy(nx.to_numpy_matrix(self._graph)))
-        self.register_buffer('diffusions', self.adjacency.matrix_exp(),
+                             torch.from_numpy(nx.to_numpy_array(self._graph)),
+                             persistent=False)
+        adjacency_weights = torch.clone(self.adjacency).detach()
+        arrow_indices = []
+        for arrow in self.ars + self.macros:
+            dom = self._dom(arrow)
+            cod = self._cod(arrow)
+            i, j = self._index(arrow), self._index(cod)
+
+            arrow_indices.append(i)
+            dom_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
+                           for ob in dom.objects)
+            cod_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
+                           for ob in cod.objects)
+            adjacency_weights[i, j] *= (cod_dims + 1) / (dom_dims + 1)
+
+        self.register_buffer('arrow_indices', torch.tensor(arrow_indices,
+                                                           dtype=torch.long),
+                             persistent=False)
+        self.register_buffer('diffusions', adjacency_weights.matrix_exp(),
                              persistent=False)
 
-    def _arrow_parameters(self, arrow):
-        """Count up the number of parameters a generating morphism has, if its
-           implementing function happens to be a :class:`torch.nn.Module`
+    def _dom(self, arrow):
+        if isinstance(arrow, Ty):
+            return arrow
+        return list(self._graph.in_edges(arrow))[0][0]
 
-           :param arrow: A generating morphism within the free category
-
-           :returns: Number of parameters in the arrow (including its dagger)
-           :rtype: int
-        """
-        params = 0
-        if isinstance(arrow.function, nn.Module):
-            for parameter in arrow.function.parameters():
-                params += parameter.numel()
-        if isinstance(arrow, cart_closed.DaggerBox):
-            dagger = arrow.dagger()
-            if isinstance(dagger.function, nn.Module):
-                for parameter in dagger.function.parameters():
-                    params += parameter.numel()
-        return params
+    def _cod(self, arrow):
+        if isinstance(arrow, Ty):
+            return arrow
+        return list(self._graph.out_edges(arrow))[0][1]
 
     def _add_object(self, obj):
         """Add an object as a node to the graph representing the free category
@@ -232,23 +252,9 @@ class FreeCategory(pyro.nn.PyroModule):
                   nerve of the free category.
         :rtype: :class:`torch.Tensor`
         """
-        weights = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
-            arrow_weights
-        )
-
-        for arrow in self.ars:
-            i = self._index(arrow)
-            k = self._index(arrow, arrow=True)
-            weights = weights.index_put((torch.LongTensor([i]),),
-                                        weights[i] * arrow_weights[k])
-
-        for macro in self.macros:
-            i = self._index(macro)
-            k = self._index(macro, arrow=True)
-            weights = weights.index_put((torch.LongTensor([i]),),
-                                        weights[i] * arrow_weights[k])
-
-        return weights
+        weights = arrow_weights.unsqueeze(dim=-1)
+        weights = self.adjacency[self.arrow_indices, :] * weights
+        return self.adjacency.index_put((self.arrow_indices,), weights)
 
     @pnn.pyro_method
     def path_through(self, box, probs, temperature, min_depth=0, infer={}):
@@ -288,11 +294,9 @@ class FreeCategory(pyro.nn.PyroModule):
 
                 dest_probs = probs[gens, dest]
                 viables = dest_probs.nonzero(as_tuple=True)[0]
-                selection_probs = F.softmax(
-                    dest_probs[viables].log() / (temperature + 1e-10),
-                    dim=-1
-                )
-                generators_categorical = dist.Categorical(selection_probs)
+                viable_logits = dest_probs[viables].log() /\
+                                (temperature + 1e-10)
+                generators_categorical = dist.Categorical(logits=viable_logits)
                 g_idx = pyro.sample('path_step{%s -> %s, %s}' % (box.dom,
                                                                  box.cod,
                                                                  location),
@@ -307,7 +311,7 @@ class FreeCategory(pyro.nn.PyroModule):
                             if not callable(v):
                                 path_data[k] = v[1:]
                 else:
-                    morphism = gen(probs, temperature + 1,
+                    morphism = gen(probs, temperature / (2 + len(path)),
                                    min_depth - len(path) - 1, infer)
                 path = path >> morphism
                 location = cod
@@ -397,12 +401,12 @@ class FreeCategory(pyro.nn.PyroModule):
             if 'arrow_index' in self._graph.nodes[node]:
                 k = self._graph.nodes[node]['arrow_index']
                 props['weight'] = arrow_weights[k].item()
-            skeleton.add_node(str(node), **props)
+            skeleton.add_node(util.node_name(node), **props)
 
         for u, v in self._graph.edges:
             if (u, v) in skip_edges:
                 continue
-            skeleton.add_edge(str(u), str(v))
+            skeleton.add_edge(util.node_name(u), util.node_name(v))
         return skeleton
 
     def draw(self, skip_edges=[], filename=None, notebook=False):
