@@ -59,8 +59,8 @@ class Box(biclosed.Box):
         if isinstance(other, Box):
             basics = all(self.__getattribute__(x) == other.__getattribute__(x)
                          for x in ['name', 'dom', 'cod', 'function'])
-            subst = unification.unifier(self.typed_dom, other.typed_dom)
-            subst = unification.unifier(self.typed_cod, other.typed_cod, subst)
+            subst = unification.unifier(self.dom, other.dom)
+            subst = unification.unifier(self.cod, other.cod, subst)
             return basics and subst is not None
         if isinstance(other, Arrow):
             return len(other) == 1 and other[0] == self
