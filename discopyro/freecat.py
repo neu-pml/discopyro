@@ -307,9 +307,16 @@ class FreeCategory(pyro.nn.PyroModule):
                 if isinstance(gen, cart_closed.Box):
                     morphism = gen
                     if gen.data and path_data:
+                        updated_data = {**path_data}
                         for k, v in path_data.items():
                             if not callable(v):
-                                path_data[k] = v[1:]
+                                next_v = v[1:]
+                                if next_v:
+                                    updated_data[k] = next_v
+                                else:
+                                    del updated_data[k]
+
+                        path_data = updated_data
                 else:
                     morphism = gen(probs, temperature,
                                    min_depth - len(path) - 1, infer)
