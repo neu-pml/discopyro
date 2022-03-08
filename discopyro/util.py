@@ -33,4 +33,5 @@ class GeneratorPredicate:
 
         if self._path_len + 1 < self._min_len:
             result = result and cod != self._cod
+        result = result and (cod != Ty() or self._cod == Ty())
         return result
