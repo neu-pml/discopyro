@@ -285,7 +285,7 @@ class FreeCategory(pyro.nn.PyroModule):
         path = Id(box.dom)
         path_data = box.data
         with pyro.markov():
-            while location != box.cod:
+            while location != box.cod or isinstance(path, Id):
                 pred = util.GeneratorPredicate(len(path), min_depth, path_data,
                                                box.cod)
                 generators = list(self._object_generators(location, True, pred))
