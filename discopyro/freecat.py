@@ -119,19 +119,7 @@ class FreeCategory(pyro.nn.PyroModule):
                              torch.from_numpy(nx.to_numpy_array(self._graph)),
                              persistent=False)
         adjacency_weights = torch.clone(self.adjacency).detach()
-        arrow_indices = []
-        for arrow in self.ars + self.macros:
-            dom = self._dom(arrow)
-            cod = self._cod(arrow)
-            i, j = self._index(arrow), self._index(cod)
-
-            arrow_indices.append(i)
-            dom_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
-                           for ob in dom.objects)
-            cod_dims = sum(sum(int(n) for n in re.findall(r'\d+', ob.name))
-                           for ob in cod.objects)
-            adjacency_weights[i, j] *= (cod_dims + 1) / (dom_dims + 1)
-
+        arrow_indices = [self._index(arrow) for arrow in self.ars + self.macros]
         self.register_buffer('arrow_indices', torch.tensor(arrow_indices,
                                                            dtype=torch.long),
                              persistent=False)
