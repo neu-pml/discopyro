@@ -390,6 +390,19 @@ class FreeCategory(pyro.nn.PyroModule):
         return self.sample_morphism(diagram, weights, temperature, min_depth,
                                     infer)
 
+    def __reachability_falg__(self, diagram):
+        if isinstance(diagram, wiring.Box):
+            return nx.has_path(self._graph, diagram.dom, diagram.cod)
+        if isinstance(diagram, wiring.Id):
+            return True
+        if isinstance(diagram, wiring.Sequential):
+            return all(diagram.arrows)
+        if isinstance(diagram, wiring.Parallel):
+            return all(diagram.factors)
+
+    def reachable(self, diagram):
+        return diagram.collapse(self.__reachability_falg__)
+
     def skeleton(self, skip_edges=[]):
         """Construct the skeleton graph for the underlying free category
 
