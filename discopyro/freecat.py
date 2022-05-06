@@ -183,7 +183,14 @@ class FreeCategory(pyro.nn.PyroModule):
         for edge in edges(obj):
             gen = edge[dir_index]
             cod = list(edges(gen))[0][dir_index]
-            if pred is None or pred(gen, cod):
+
+            if pred:
+                cod_index, dest_index = self._index(cod), self._index(pred.cod)
+                connected = (self.diffusions[cod_index, dest_index] > 0).item()
+            else:
+                connected = True
+
+            if connected and (pred is None or pred(gen, cod)):
                 yield (gen, cod, self._index(gen), self._index(gen, True))
 
     @property
