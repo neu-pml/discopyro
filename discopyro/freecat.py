@@ -102,11 +102,10 @@ class FreeCategory(pyro.nn.PyroModule):
             self._graph.add_edge(Ty(), macro)
             self._graph.add_edge(macro, obj)
 
-        self.arrow_weight_alphas = pnn.PyroParam(
-            torch.ones(len(self.ars) + len(self.macros)),
-            constraint=constraints.positive
+        self.arrow_weight_loc = pnn.PyroParam(
+            torch.zeros(len(self.ars) + len(self.macros)),
         )
-        self.arrow_weight_betas = pnn.PyroParam(
+        self.arrow_weight_scale = pnn.PyroParam(
             torch.ones(len(self.ars) + len(self.macros)),
             constraint=constraints.positive
         )
@@ -370,8 +369,8 @@ class FreeCategory(pyro.nn.PyroModule):
         if arrow_weights is None:
             arrow_weights = pyro.sample(
                 'arrow_weights',
-                dist.Gamma(self.arrow_weight_alphas,
-                           self.arrow_weight_betas).to_event(1)
+                dist.Normal(self.arrow_weight_loc,
+                            self.arrow_weight_scale).to_event(1)
             )
 
         weights = self.diffusions + self.weights_matrix(arrow_weights)
@@ -399,8 +398,8 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: Skeleton graph
         :rtype: :class:`nx.Digraph`
         """
-        arrow_weights = dist.Beta(self.arrow_weight_alphas,
-                                  self.arrow_weight_betas).mean
+        arrow_weights = dist.Normal(self.arrow_weight_loc,
+                                    self.arrow_weight_scale).mean
 
         skeleton = nx.DiGraph()
 
