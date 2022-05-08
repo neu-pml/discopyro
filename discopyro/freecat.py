@@ -102,11 +102,10 @@ class FreeCategory(pyro.nn.PyroModule):
             self._graph.add_edge(Ty(), macro)
             self._graph.add_edge(macro, obj)
 
-        self.arrow_weight_alphas = pnn.PyroParam(
-            torch.ones(len(self.ars) + len(self.macros)),
-            constraint=constraints.positive
+        self.arrow_weight_loc = pnn.PyroParam(
+            torch.zeros(len(self.ars) + len(self.macros)),
         )
-        self.arrow_weight_betas = pnn.PyroParam(
+        self.arrow_weight_scale = pnn.PyroParam(
             torch.ones(len(self.ars) + len(self.macros)),
             constraint=constraints.positive
         )
@@ -184,7 +183,14 @@ class FreeCategory(pyro.nn.PyroModule):
         for edge in edges(obj):
             gen = edge[dir_index]
             cod = list(edges(gen))[0][dir_index]
-            if pred is None or pred(gen, cod):
+
+            if pred:
+                cod_index, dest_index = self._index(cod), self._index(pred.cod)
+                connected = (self.diffusions[cod_index, dest_index] > 0).item()
+            else:
+                connected = True
+
+            if connected and (pred is None or pred(gen, cod)):
                 yield (gen, cod, self._index(gen), self._index(gen, True))
 
     @property
@@ -245,7 +251,7 @@ class FreeCategory(pyro.nn.PyroModule):
         return self.adjacency.index_put((self.arrow_indices,), weights)
 
     @pnn.pyro_method
-    def path_through(self, box, probs, temperature, min_depth=0, infer={}):
+    def path_through(self, box, energies, temperature, min_depth=0, infer={}):
         """Sample a morphism from object `src` to object `dest_mask`
 
         :param src: Source object, the desired morphism's domain
@@ -253,8 +259,8 @@ class FreeCategory(pyro.nn.PyroModule):
         :param dest_mask: Destination object, the desired morphism's codomain
         :type dest_mask: :class:`discopy.biclosed.Ty`
 
-        :param probs: Matrix of long-run arrival probabilities in the graph
-        :type probs: :class:`torch.Tensor`
+        :param energies: Matrix of long-run arrival probabilities in the graph
+        :type energies: :class:`torch.Tensor`
         :param temperature: Temperature (scale parameter) for sampling morphisms
         :type temperature: :class:`torch.Tensor`
 
@@ -278,20 +284,17 @@ class FreeCategory(pyro.nn.PyroModule):
                                                box.cod)
                 generators = list(self._object_generators(location, True, pred))
                 gens = torch.tensor([g for (_, _, g, _) in generators],
-                                    dtype=torch.long).to(device=probs.device)
+                                    dtype=torch.long).to(device=energies.device)
 
-                dest_probs = probs[gens, dest]
-                viables = dest_probs.nonzero(as_tuple=True)[0]
-                viable_logits = dest_probs[viables].log() /\
-                                (temperature + 1e-10)
-                generators_categorical = dist.Categorical(logits=viable_logits)
+                logits = energies[gens, dest] / (temperature + 1e-10)
+                generators_categorical = dist.Categorical(logits=logits)
                 g_idx = pyro.sample('path_step{%s -> %s, %s}' % (box.dom,
                                                                  box.cod,
                                                                  location),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
-                gen, cod, _, _ = generators[viables[g_idx.item()]]
+                gen, cod, _, _ = generators[g_idx.item()]
                 if isinstance(gen, cart_closed.Box):
                     morphism = gen
                     if gen.data and path_data:
@@ -306,7 +309,7 @@ class FreeCategory(pyro.nn.PyroModule):
 
                         path_data = updated_data
                 else:
-                    morphism = gen(probs, temperature,
+                    morphism = gen(energies, temperature,
                                    min_depth - len(path) - 1, infer)
                 path = path >> morphism
                 location = cod
@@ -314,14 +317,14 @@ class FreeCategory(pyro.nn.PyroModule):
         return path
 
     @pnn.pyro_method
-    def sample_morphism(self, diagram, probs, temperature, min_depth=0,
+    def sample_morphism(self, diagram, energies, temperature, min_depth=0,
                         infer={}):
         """Sample a morphism from the terminal object into a specified object
 
         :param obj: Target object
         :type obj: :class:`discopy.biclosed.Ty`
-        :param probs: Matrix of long-run arrival probabilities in the graph
-        :type probs: :class:`torch.Tensor`
+        :param energies: Matrix of long-run arrival probabilities in the graph
+        :type energies: :class:`torch.Tensor`
         :param temperature: Temperature (scale parameter) for sampling morphisms
         :type temperature: :class:`torch.Tensor`
 
@@ -334,7 +337,7 @@ class FreeCategory(pyro.nn.PyroModule):
 
         with name_count():
             functor = wiring.Functor(lambda t: t,
-                                     lambda f: self.path_through(f, probs,
+                                     lambda f: self.path_through(f, energies,
                                                                  temperature,
                                                                  min_depth,
                                                                  infer),
@@ -370,8 +373,8 @@ class FreeCategory(pyro.nn.PyroModule):
         if arrow_weights is None:
             arrow_weights = pyro.sample(
                 'arrow_weights',
-                dist.Gamma(self.arrow_weight_alphas,
-                           self.arrow_weight_betas).to_event(1)
+                dist.Normal(self.arrow_weight_loc,
+                            self.arrow_weight_scale).to_event(1)
             )
 
         weights = self.diffusions + self.weights_matrix(arrow_weights)
@@ -399,8 +402,8 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: Skeleton graph
         :rtype: :class:`nx.Digraph`
         """
-        arrow_weights = dist.Beta(self.arrow_weight_alphas,
-                                  self.arrow_weight_betas).mean
+        arrow_weights = dist.Normal(self.arrow_weight_loc,
+                                    self.arrow_weight_scale).mean
 
         skeleton = nx.DiGraph()
 

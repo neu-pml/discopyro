@@ -22,6 +22,10 @@ class GeneratorPredicate:
         self._path_data = path_data
         self._cod = cod
 
+    @property
+    def cod(self):
+        return self._cod
+
     def __call__(self, gen, cod):
         result = True
 
