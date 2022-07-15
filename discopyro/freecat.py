@@ -1,7 +1,20 @@
 import collections
-from discopy.biclosed import Id, Ty, Under
+from discopy.biclosed import Id, Under
+from discopy.monoidal import Ty
+import discopy.wiring as wiring
 import functools
 import matplotlib.pyplot as plt
+
+plt.rcParams.update(
+    {
+        'text.usetex': True,
+        'text.latex.preamble': r'\usepackage{amsfonts}',
+        'font.family': 'serif',
+        'mathtext.fontset': 'stix',
+    }
+)
+
+
 import networkx as nx
 import os.path
 import pyro
@@ -10,13 +23,13 @@ import pyro.distributions as dist
 import pyro.nn as pnn
 import pyvis
 import pyvis.network
-import scipy.linalg
+import re
 import torch
 import torch.distributions.constraints as constraints
 import torch.nn as nn
 import torch.nn.functional as F
 
-from . import callable, unification
+from . import cart_closed, unification, util
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
@@ -36,7 +49,7 @@ class FreeCategory(pyro.nn.PyroModule):
         self._graph = nx.DiGraph()
         self._add_object(Ty())
         for i, gen in enumerate(generators):
-            assert isinstance(gen, callable.CallableBox)
+            assert isinstance(gen, cart_closed.Box)
 
             if gen.dom not in self._graph:
                 self._add_object(gen.dom)
@@ -48,7 +61,7 @@ class FreeCategory(pyro.nn.PyroModule):
 
             if isinstance(gen.function, nn.Module):
                 self.add_module('generator_%d' % i, gen.function)
-            if isinstance(gen, callable.CallableDaggerBox):
+            if isinstance(gen, cart_closed.DaggerBox):
                 dagger = gen.dagger()
                 if isinstance(dagger.function, nn.Module):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
@@ -57,13 +70,8 @@ class FreeCategory(pyro.nn.PyroModule):
             self._graph.nodes[obj]['object_index'] = i
 
         for i, elem in enumerate(global_elements):
-            assert isinstance(elem, callable.CallableBox)
+            assert isinstance(elem, cart_closed.Box)
             assert elem.dom == Ty()
-            if not isinstance(elem, callable.CallableDaggerBox):
-                dagger_name = '%s$^{\\dagger}$' % elem.name
-                elem = callable.CallableDaggerBox(elem.name, elem.dom, elem.cod,
-                                                  elem.function,
-                                                  lambda *args: (), dagger_name)
 
             self._graph.add_node(elem, index=len(self._graph),
                                  arrow_index=len(generators) + i)
@@ -72,20 +80,21 @@ class FreeCategory(pyro.nn.PyroModule):
 
             if isinstance(elem.function, nn.Module):
                 self.add_module('global_element_%d' % i, elem.function)
-            dagger = elem.dagger()
-            if isinstance(dagger.function, nn.Module):
-                self.add_module('global_element_%d_dagger' % i, dagger.function)
+            if isinstance(elem, cart_closed.DaggerBox):
+                dagger = elem.dagger()
+                if isinstance(dagger.function, nn.Module):
+                    self.add_module('global_element_%d_dagger' % i,
+                                    dagger.function)
 
         for i, obj in enumerate(self.compound_obs):
             if isinstance(obj, Under):
-                src, dest = obj.left, obj.right
-                def macro(probs, temp, min_depth, infer, l=src, r=dest):
-                    return self.path_between(l, r, probs, temp, min_depth,
-                                             infer)
+                box = wiring.Box('', obj.left, obj.right, data={})
+                macro = functools.partial(self.sample_morphism, box)
             else:
-                def macro(probs, temp, min_depth, infer, obj=obj):
-                    return self.product_arrow(obj, probs, temp, min_depth,
-                                              infer)
+                boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.objects]
+                diagram = functools.reduce(lambda f, g: f @ g, boxes,
+                                           wiring.Id(Ty()))
+                macro = functools.partial(self.sample_morphism, diagram)
 
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
@@ -93,11 +102,10 @@ class FreeCategory(pyro.nn.PyroModule):
             self._graph.add_edge(Ty(), macro)
             self._graph.add_edge(macro, obj)
 
-        self.arrow_weight_alphas = pnn.PyroParam(
-            torch.ones(len(self.ars) + len(self.macros)),
-            constraint=constraints.positive
+        self.arrow_weight_loc = pnn.PyroParam(
+            torch.zeros(len(self.ars) + len(self.macros)),
         )
-        self.arrow_weight_betas = pnn.PyroParam(
+        self.arrow_weight_scale = pnn.PyroParam(
             torch.ones(len(self.ars) + len(self.macros)),
             constraint=constraints.positive
         )
@@ -106,32 +114,26 @@ class FreeCategory(pyro.nn.PyroModule):
         self.temperature_beta = pnn.PyroParam(torch.ones(1),
                                               constraint=constraints.positive)
 
-        adjacency_weights = torch.from_numpy(nx.to_numpy_matrix(self._graph))
-        for arrow in self.ars:
-            i = self._index(arrow)
-            adjacency_weights[i] /= self._arrow_parameters(arrow) + 1
-        self.register_buffer('diffusion_counts', adjacency_weights.matrix_exp(),
+        self.register_buffer('adjacency',
+                             torch.from_numpy(nx.to_numpy_array(self._graph)),
+                             persistent=False)
+        adjacency_weights = torch.clone(self.adjacency).detach()
+        arrow_indices = [self._index(arrow) for arrow in self.ars + self.macros]
+        self.register_buffer('arrow_indices', torch.tensor(arrow_indices,
+                                                           dtype=torch.long),
+                             persistent=False)
+        self.register_buffer('diffusions', adjacency_weights.matrix_exp(),
                              persistent=False)
 
-    def _arrow_parameters(self, arrow):
-        """Count up the number of parameters a generating morphism has, if its
-           implementing function happens to be a :class:`torch.nn.Module`
+    def _dom(self, arrow):
+        if isinstance(arrow, Ty):
+            return arrow
+        return list(self._graph.in_edges(arrow))[0][0]
 
-           :param arrow: A generating morphism within the free category
-
-           :returns: Number of parameters in the arrow (including its dagger)
-           :rtype: int
-        """
-        params = 0
-        if isinstance(arrow.function, nn.Module):
-            for parameter in arrow.function.parameters():
-                params += parameter.numel()
-        if isinstance(arrow, callable.CallableDaggerBox):
-            dagger = arrow.dagger()
-            if isinstance(dagger.function, nn.Module):
-                for parameter in dagger.function.parameters():
-                    params += parameter.numel()
-        return params
+    def _cod(self, arrow):
+        if isinstance(arrow, Ty):
+            return arrow
+        return list(self._graph.out_edges(arrow))[0][1]
 
     def _add_object(self, obj):
         """Add an object as a node to the graph representing the free category
@@ -165,7 +167,7 @@ class FreeCategory(pyro.nn.PyroModule):
         """
         return (self.arrow_weights.shape, self.temperature_alpha.shape * 2)
 
-    def _object_generators(self, obj, forward=True):
+    def _object_generators(self, obj, forward=True, pred=None):
         """Return a list of generators flowing into or out of an object
 
         :param obj: The object in question
@@ -178,12 +180,18 @@ class FreeCategory(pyro.nn.PyroModule):
         """
         edges = self._graph.out_edges if forward else self._graph.in_edges
         dir_index = 1 if forward else 0
-        generators = []
         for edge in edges(obj):
             gen = edge[dir_index]
-            counterpart = list(edges(gen))[0][dir_index]
-            generators.append((gen, counterpart))
-        return generators
+            cod = list(edges(gen))[0][dir_index]
+
+            if pred:
+                cod_index, dest_index = self._index(cod), self._index(pred.cod)
+                connected = (self.diffusions[cod_index, dest_index] > 0).item()
+            else:
+                connected = True
+
+            if connected and (pred is None or pred(gen, cod)):
+                yield (gen, cod, self._index(gen), self._index(gen, True))
 
     @property
     def obs(self):
@@ -214,7 +222,7 @@ class FreeCategory(pyro.nn.PyroModule):
         :rtype: list
         """
         return [node for node in self._graph
-                if isinstance(node, callable.CallableBox)]
+                if isinstance(node, cart_closed.Box)]
 
     @property
     def macros(self):
@@ -224,7 +232,7 @@ class FreeCategory(pyro.nn.PyroModule):
         :rtype: list
         """
         return [node for node in self._graph if not isinstance(node, Ty) and\
-                not isinstance(node, callable.CallableBox)]
+                not isinstance(node, cart_closed.Box)]
 
     @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
@@ -238,114 +246,85 @@ class FreeCategory(pyro.nn.PyroModule):
                   nerve of the free category.
         :rtype: :class:`torch.Tensor`
         """
-        weights = torch.from_numpy(nx.to_numpy_matrix(self._graph)).to(
-            arrow_weights
-        )
-
-        for arrow in self.ars:
-            i = self._index(arrow)
-            k = self._index(arrow, arrow=True)
-            weights = weights.index_put((torch.LongTensor([i]),),
-                                        weights[i] * arrow_weights[k])
-
-        for macro in self.macros:
-            i = self._index(macro)
-            k = self._index(macro, arrow=True)
-            weights = weights.index_put((torch.LongTensor([i]),),
-                                        weights[i] * arrow_weights[k])
-
-        return weights
+        weights = arrow_weights.unsqueeze(dim=-1)
+        weights = self.adjacency[self.arrow_indices, :] * weights
+        return self.adjacency.index_put((self.arrow_indices,), weights)
 
     @pnn.pyro_method
-    def product_arrow(self, obj, probs, temperature, min_depth=0, infer={}):
-        """Sample a morphism from the terminal object into a Cartesian product
-
-        :param obj: Cartesian product object to target
-        :type obj: :class:`discopy.biclosed.Ty`
-        :param probs: Matrix of long-run arrival probabilities in the graph
-        :type probs: :class:`torch.Tensor`
-        :param temperature: Temperature (scale parameter) for sampling morphisms
-        :type temperature: :class:`torch.Tensor`
-
-        :param int min_depth: Minimum depth of sequential composition
-        :param dict infer: Inference parameters for `pyro.sample()`
-
-        :returns: A morphism from Ty() to `obj`
-        :rtype: :class:`discopy.biclosed.Diagram`
-        """
-        product = None
-        for ob in obj.objects:
-            entry = self.sample_morphism(Ty(ob), probs, temperature + 1,
-                                         min_depth, infer)
-            if product is None:
-                product = entry
-            else:
-                product = product @ entry
-        return product
-
-    @pnn.pyro_method
-    def path_between(self, src, dest, probs, temperature, min_depth=0,
-                     infer={}):
-        """Sample a morphism from object `src` to object `dest`
+    def path_through(self, box, energies, temperature, min_depth=0, infer={}):
+        """Sample a morphism from object `src` to object `dest_mask`
 
         :param src: Source object, the desired morphism's domain
         :type src: :class:`discopy.biclosed.Ty`
-        :param dest: Destination object, the desired morphism's codomain
-        :type dest: :class:`discopy.biclosed.Ty`
+        :param dest_mask: Destination object, the desired morphism's codomain
+        :type dest_mask: :class:`discopy.biclosed.Ty`
 
-        :param probs: Matrix of long-run arrival probabilities in the graph
-        :type probs: :class:`torch.Tensor`
+        :param energies: Matrix of long-run arrival probabilities in the graph
+        :type energies: :class:`torch.Tensor`
         :param temperature: Temperature (scale parameter) for sampling morphisms
         :type temperature: :class:`torch.Tensor`
 
         :param int min_depth: Minimum depth of sequential composition
         :param dict infer: Inference parameters for `pyro.sample()`
 
-        :returns: A morphism from `src` to `dest`
+        :returns: A morphism from `src` to `dest_mask`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        assert dest != Ty()
+        if box.cod == Ty() and not box.data:
+            return cart_closed.Box(box.name, box.dom, box.cod, lambda *xs: (),
+                                   data=box.data)
+        dest = self._index(box.cod)
 
-        location = src
-        path = Id(src)
-        dest_index = self._index(dest)
+        location = box.dom
+        path = Id(box.dom)
+        path_data = box.data
         with pyro.markov():
-            while location != dest:
-                generators = self._object_generators(location, True)
-                if len(path) + 1 < min_depth:
-                    generators = [(g, cod) for (g, cod) in generators
-                                  if cod != dest]
-                gens = [self._index(g) for (g, _) in generators]
+            while location != box.cod or isinstance(path, Id):
+                pred = util.GeneratorPredicate(len(path), min_depth, path_data,
+                                               box.cod)
+                generators = list(self._object_generators(location, True, pred))
+                gens = torch.tensor([g for (_, _, g, _) in generators],
+                                    dtype=torch.long).to(device=energies.device)
 
-                dest_probs = probs[gens][:, dest_index]
-                viables = dest_probs.nonzero(as_tuple=True)[0]
-                selection_probs = F.softmax(
-                    dest_probs[viables].log() / (temperature + 1e-10),
-                    dim=-1
-                )
-                generators_categorical = dist.Categorical(selection_probs)
-                g_idx = pyro.sample('path_step_{%s -> %s}' % (location, dest),
+                logits = energies[gens, dest] / (temperature + 1e-10)
+                generators_categorical = dist.Categorical(logits=logits)
+                g_idx = pyro.sample('path_step{%s -> %s, %s}' % (box.dom,
+                                                                 box.cod,
+                                                                 location),
                                     generators_categorical.to_event(0),
                                     infer=infer)
 
-                gen, cod = generators[viables[g_idx.item()]]
-                if isinstance(gen, callable.CallableBox):
+                gen, cod, _, _ = generators[g_idx.item()]
+                if isinstance(gen, cart_closed.Box):
                     morphism = gen
+                    if gen.data and path_data:
+                        updated_data = {**path_data}
+                        for k, v in path_data.items():
+                            if not callable(v):
+                                next_v = v[1:]
+                                if next_v:
+                                    updated_data[k] = next_v
+                                else:
+                                    del updated_data[k]
+
+                        path_data = updated_data
                 else:
-                    morphism = gen(probs, temperature,
+                    morphism = gen(energies, temperature,
                                    min_depth - len(path) - 1, infer)
                 path = path >> morphism
                 location = cod
 
         return path
 
-    def sample_morphism(self, obj, probs, temperature, min_depth=2, infer={}):
+    @pnn.pyro_method
+    def sample_morphism(self, diagram, energies, temperature, min_depth=0,
+                        infer={}):
         """Sample a morphism from the terminal object into a specified object
 
         :param obj: Target object
         :type obj: :class:`discopy.biclosed.Ty`
-        :param probs: Matrix of long-run arrival probabilities in the graph
-        :type probs: :class:`torch.Tensor`
+        :param energies: Matrix of long-run arrival probabilities in the graph
+        :type energies: :class:`torch.Tensor`
         :param temperature: Temperature (scale parameter) for sampling morphisms
         :type temperature: :class:`torch.Tensor`
 
@@ -355,16 +334,17 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: A morphism from Ty() to `obj`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        with name_count():
-            if obj in self._graph.nodes:
-                return self.path_between(Ty(), obj, probs, temperature,
-                                         min_depth, infer)
-            entries = unification.unfold_arrow(obj)
-            src, dest = unification.fold_product(entries[:-1]), entries[-1]
-            return self.path_between(src, dest, probs, temperature, min_depth,
-                                     infer)
 
-    def forward(self, obj, min_depth=2, infer={}, temperature=None,
+        with name_count():
+            functor = wiring.Functor(lambda t: t,
+                                     lambda f: self.path_through(f, energies,
+                                                                 temperature,
+                                                                 min_depth,
+                                                                 infer),
+                                     ar_factory=cart_closed.Box)
+            return functor(diagram)
+
+    def forward(self, diagram, min_depth=0, infer={}, temperature=None,
                 arrow_weights=None):
         """Sample a morphism from the terminal object into a specified object
 
@@ -393,12 +373,26 @@ class FreeCategory(pyro.nn.PyroModule):
         if arrow_weights is None:
             arrow_weights = pyro.sample(
                 'arrow_weights',
-                dist.Gamma(self.arrow_weight_alphas,
-                           self.arrow_weight_betas).to_event(1)
+                dist.Normal(self.arrow_weight_loc,
+                            self.arrow_weight_scale).to_event(1)
             )
 
-        weights = self.diffusion_counts + self.weights_matrix(arrow_weights)
-        return self.sample_morphism(obj, weights, temperature, min_depth, infer)
+        weights = self.diffusions + self.weights_matrix(arrow_weights)
+        return self.sample_morphism(diagram, weights, temperature, min_depth,
+                                    infer)
+
+    def __reachability_falg__(self, diagram):
+        if isinstance(diagram, wiring.Box):
+            return nx.has_path(self._graph, diagram.dom, diagram.cod)
+        if isinstance(diagram, wiring.Id):
+            return True
+        if isinstance(diagram, wiring.Sequential):
+            return all(diagram.arrows)
+        if isinstance(diagram, wiring.Parallel):
+            return all(diagram.factors)
+
+    def reachable(self, diagram):
+        return diagram.collapse(self.__reachability_falg__)
 
     def skeleton(self, skip_edges=[]):
         """Construct the skeleton graph for the underlying free category
@@ -408,8 +402,8 @@ class FreeCategory(pyro.nn.PyroModule):
         :returns: Skeleton graph
         :rtype: :class:`nx.Digraph`
         """
-        arrow_weights = dist.Beta(self.arrow_weight_alphas,
-                                  self.arrow_weight_betas).mean
+        arrow_weights = dist.Normal(self.arrow_weight_loc,
+                                    self.arrow_weight_scale).mean
 
         skeleton = nx.DiGraph()
 
@@ -418,12 +412,12 @@ class FreeCategory(pyro.nn.PyroModule):
             if 'arrow_index' in self._graph.nodes[node]:
                 k = self._graph.nodes[node]['arrow_index']
                 props['weight'] = arrow_weights[k].item()
-            skeleton.add_node(str(node), **props)
+            skeleton.add_node(util.node_name(node), **props)
 
         for u, v in self._graph.edges:
             if (u, v) in skip_edges:
                 continue
-            skeleton.add_edge(str(u), str(v))
+            skeleton.add_edge(util.node_name(u), util.node_name(v))
         return skeleton
 
     def draw(self, skip_edges=[], filename=None, notebook=False):
