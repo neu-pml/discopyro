@@ -33,29 +33,29 @@ from . import cart_closed, unification, util
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
-class FreeCategory(pyro.nn.PyroModule):
-    """Pyro module representing a free category as a graph, and implementing
-    stochastic shortest-paths sampling of morphisms.
+class FreeOperad(pyro.nn.PyroModule):
+    """Pyro module representing a free operad as a graph, and implementing
+    stochastic shortest-paths sampling of operations.
 
-    :param list generators: A set of :class:`discopy.biclosed.Box` objects
-                            representing the generating morphisms of the free
-                            category.
+    :param list generators: A set of :class:`discopy.biclosed.Box` types
+                            representing the generating operations of the free
+                            operad.
     :param list global_elements: A set of :class:`discopy.biclosed.Box`
                                  representing the (often stochastic) global
-                                 elements of the free category's objects
+                                 elements of the free operad's types
     """
     def __init__(self, generators, global_elements):
         super().__init__()
         self._graph = nx.DiGraph()
-        self._add_object(Ty())
+        self._add_type(Ty())
         for i, gen in enumerate(generators):
             assert isinstance(gen, cart_closed.Box)
 
             if gen.dom not in self._graph:
-                self._add_object(gen.dom)
+                self._add_type(gen.dom)
             self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
             if gen.cod not in self._graph:
-                self._add_object(gen.cod)
+                self._add_type(gen.cod)
             self._graph.add_edge(gen.dom, gen)
             self._graph.add_edge(gen, gen.cod)
 
@@ -67,7 +67,7 @@ class FreeCategory(pyro.nn.PyroModule):
                     self.add_module('generator_%d_dagger' % i, dagger.function)
 
         for i, obj in enumerate(self.obs):
-            self._graph.nodes[obj]['object_index'] = i
+            self._graph.nodes[obj]['type_index'] = i
 
         for i, elem in enumerate(global_elements):
             assert isinstance(elem, cart_closed.Box)
@@ -89,12 +89,12 @@ class FreeCategory(pyro.nn.PyroModule):
         for i, obj in enumerate(self.compound_obs):
             if isinstance(obj, Under):
                 box = wiring.Box('', obj.left, obj.right, data={})
-                macro = functools.partial(self.sample_morphism, box)
+                macro = functools.partial(self.sample_operation, box)
             else:
-                boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.objects]
+                boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.types]
                 diagram = functools.reduce(lambda f, g: f @ g, boxes,
                                            wiring.Id(Ty()))
-                macro = functools.partial(self.sample_morphism, diagram)
+                macro = functools.partial(self.sample_operation, diagram)
 
             arrow_index = len(generators) + len(global_elements) + i
             self._graph.add_node(macro, index=len(self._graph),
@@ -135,10 +135,10 @@ class FreeCategory(pyro.nn.PyroModule):
             return arrow
         return list(self._graph.out_edges(arrow))[0][1]
 
-    def _add_object(self, obj):
-        """Add an object as a node to the graph representing the free category
+    def _add_type(self, obj):
+        """Add an type as a node to the graph representing the free operad
 
-        :param obj: A type representing an object in the free category
+        :param obj: A type representing an type in the free operad
         :type obj: :class:`discopy.biclosed.Ty`
         """
         if obj in self._graph:
@@ -146,11 +146,11 @@ class FreeCategory(pyro.nn.PyroModule):
         if unification.type_compound(obj):
             if len(obj) > 1:
                 for ob in obj:
-                    self._add_object(Ty(ob))
+                    self._add_type(Ty(ob))
             else:
                 dom, cod = obj.left, obj.right
-                self._add_object(dom)
-                self._add_object(cod)
+                self._add_type(dom)
+                self._add_type(cod)
         self._graph.add_node(obj, index=len(self._graph))
 
     def _index(self, node, arrow=False):
@@ -167,15 +167,15 @@ class FreeCategory(pyro.nn.PyroModule):
         """
         return (self.arrow_weights.shape, self.temperature_alpha.shape * 2)
 
-    def _object_generators(self, obj, forward=True, pred=None):
-        """Return a list of generators flowing into or out of an object
+    def _type_generators(self, obj, forward=True, pred=None):
+        """Return a list of generators flowing into or out of an type
 
-        :param obj: The object in question
+        :param obj: The type in question
         :type obj: :class:`discopy.biclosed.Ty`
         :param bool forward: Whether to look for arrows flowing out from (True)
-                             or into (False) an object
+                             or into (False) an type
 
-        :returns: A list of generating morphisms connected to `obj`
+        :returns: A list of generating operations connected to `obj`
         :rtype: list
         """
         edges = self._graph.out_edges if forward else self._graph.in_edges
@@ -195,19 +195,19 @@ class FreeCategory(pyro.nn.PyroModule):
 
     @property
     def obs(self):
-        """A list of the objects in the free category
+        """A list of the types in the free operad
 
-        :returns: The objects in the free category
+        :returns: The types in the free operad
         :rtype: list
         """
         return [node for node in self._graph if isinstance(node, Ty)]
 
     @property
     def compound_obs(self):
-        """A list of the compound (product and exponential) objects in the free
-           category
+        """A list of the compound (product and exponential) types in the free
+           operad
 
-        :returns: The product and exponential objects in the free category
+        :returns: The product and exponential types in the free operad
         :rtype: list
         """
         for obj in self.obs:
@@ -216,9 +216,9 @@ class FreeCategory(pyro.nn.PyroModule):
 
     @property
     def ars(self):
-        """A list of the generating morphisms in the free category
+        """A list of the generating operations in the free operad
 
-        :returns: The generators in the free category
+        :returns: The generators in the free operad
         :rtype: list
         """
         return [node for node in self._graph
@@ -226,9 +226,9 @@ class FreeCategory(pyro.nn.PyroModule):
 
     @property
     def macros(self):
-        """A list of the generating macros in the free category
+        """A list of the generating macros in the free operad
 
-        :returns: The macros in the free category
+        :returns: The macros in the free operad
         :rtype: list
         """
         return [node for node in self._graph if not isinstance(node, Ty) and\
@@ -237,13 +237,13 @@ class FreeCategory(pyro.nn.PyroModule):
     @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
         """Construct the matrix of transition weights between nodes in the
-           free category's graph representation, given weights for the arrows.
+           free operad's graph representation, given weights for the arrows.
 
         :param arrow_weights: Weights for the arrows, indexed by arrow indices
         :type arrow_weights: :class:`torch.Tensor`
 
         :returns: An unnormalized transition matrix for a random walk over the
-                  nerve of the free category.
+                  nerve of the free operad.
         :rtype: :class:`torch.Tensor`
         """
         weights = arrow_weights.unsqueeze(dim=-1)
@@ -252,22 +252,22 @@ class FreeCategory(pyro.nn.PyroModule):
 
     @pnn.pyro_method
     def path_through(self, box, energies, temperature, min_depth=0, infer={}):
-        """Sample a morphism from object `src` to object `dest_mask`
+        """Sample an operation from type `src` to type `dest_mask`
 
-        :param src: Source object, the desired morphism's domain
+        :param src: Source type, the desired operation's domain
         :type src: :class:`discopy.biclosed.Ty`
-        :param dest_mask: Destination object, the desired morphism's codomain
+        :param dest_mask: Destination type, the desired operation's codomain
         :type dest_mask: :class:`discopy.biclosed.Ty`
 
         :param energies: Matrix of long-run arrival probabilities in the graph
         :type energies: :class:`torch.Tensor`
-        :param temperature: Temperature (scale parameter) for sampling morphisms
+        :param temperature: Temperature (scale parameter) for sampling operations
         :type temperature: :class:`torch.Tensor`
 
         :param int min_depth: Minimum depth of sequential composition
         :param dict infer: Inference parameters for `pyro.sample()`
 
-        :returns: A morphism from `src` to `dest_mask`
+        :returns: An operation from `src` to `dest_mask`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
         if box.cod == Ty() and not box.data:
@@ -282,7 +282,7 @@ class FreeCategory(pyro.nn.PyroModule):
             while location != box.cod or isinstance(path, Id):
                 pred = util.GeneratorPredicate(len(path), min_depth, path_data,
                                                box.cod)
-                generators = list(self._object_generators(location, True, pred))
+                generators = list(self._type_generators(location, True, pred))
                 gens = torch.tensor([g for (_, _, g, _) in generators],
                                     dtype=torch.long).to(device=energies.device)
 
@@ -296,7 +296,7 @@ class FreeCategory(pyro.nn.PyroModule):
 
                 gen, cod, _, _ = generators[g_idx.item()]
                 if isinstance(gen, cart_closed.Box):
-                    morphism = gen
+                    operation = gen
                     if gen.data and path_data:
                         updated_data = {**path_data}
                         for k, v in path_data.items():
@@ -309,29 +309,29 @@ class FreeCategory(pyro.nn.PyroModule):
 
                         path_data = updated_data
                 else:
-                    morphism = gen(energies, temperature,
+                    operation = gen(energies, temperature,
                                    min_depth - len(path) - 1, infer)
-                path = path >> morphism
+                path = path >> operation
                 location = cod
 
         return path
 
     @pnn.pyro_method
-    def sample_morphism(self, diagram, energies, temperature, min_depth=0,
-                        infer={}):
-        """Sample a morphism from the terminal object into a specified object
+    def sample_operation(self, diagram, energies, temperature, min_depth=0,
+                         infer={}):
+        """Sample an operation from the terminal type into a specified type
 
-        :param obj: Target object
+        :param obj: Target type
         :type obj: :class:`discopy.biclosed.Ty`
         :param energies: Matrix of long-run arrival probabilities in the graph
         :type energies: :class:`torch.Tensor`
-        :param temperature: Temperature (scale parameter) for sampling morphisms
+        :param temperature: Temperature (scale parameter) for sampling operations
         :type temperature: :class:`torch.Tensor`
 
         :param int min_depth: Minimum depth of sequential composition
         :param dict infer: Inference parameters for `pyro.sample()`
 
-        :returns: A morphism from Ty() to `obj`
+        :returns: An operation from Ty() to `obj`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
 
@@ -346,22 +346,22 @@ class FreeCategory(pyro.nn.PyroModule):
 
     def forward(self, diagram, min_depth=0, infer={}, temperature=None,
                 arrow_weights=None):
-        """Sample a morphism from the terminal object into a specified object
+        """Sample an operation from the terminal type into a specified type
 
-        :param obj: Target object
+        :param obj: Target type
         :type obj: :class:`discopy.biclosed.Ty`
 
         :param int min_depth: Minimum depth of sequential composition
         :param dict infer: Inference parameters for `pyro.sample()`
 
-        :param temperature: Temperature (scale parameter) for sampling morphisms
+        :param temperature: Temperature (scale parameter) for sampling operations
         :type temperature: :class:`torch.Tensor`
 
         :param arrow_weights: Proposed arrow weights to combine with the
                               long-run arrival probabilities
         :type arrow_weights: :class:`torch.Tensor`
 
-        :returns: A morphism from Ty() to `obj`
+        :returns: An operation from Ty() to `obj`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
         if temperature is None:
@@ -378,8 +378,8 @@ class FreeCategory(pyro.nn.PyroModule):
             )
 
         weights = self.diffusions + self.weights_matrix(arrow_weights)
-        return self.sample_morphism(diagram, weights, temperature, min_depth,
-                                    infer)
+        return self.sample_operation(diagram, weights, temperature, min_depth,
+                                     infer)
 
     def __reachability_falg__(self, diagram):
         if isinstance(diagram, wiring.Box):
@@ -395,7 +395,7 @@ class FreeCategory(pyro.nn.PyroModule):
         return diagram.collapse(self.__reachability_falg__)
 
     def skeleton(self, skip_edges=[]):
-        """Construct the skeleton graph for the underlying free category
+        """Construct the skeleton graph for the underlying free operad
 
         :param list skip_edges: List of arrows to skip
 
@@ -421,7 +421,7 @@ class FreeCategory(pyro.nn.PyroModule):
         return skeleton
 
     def draw(self, skip_edges=[], filename=None, notebook=False):
-        """Draw the free category's nerve/skeleton using either PyVis or
+        """Draw the free operad's nerve/skeleton using either PyVis or
            networkX
 
         :param list skip_edges: List of arrows to skip
