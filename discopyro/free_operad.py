@@ -91,7 +91,7 @@ class FreeOperad(pyro.nn.PyroModule):
                 box = wiring.Box('', obj.left, obj.right, data={})
                 macro = functools.partial(self.sample_operation, box)
             else:
-                boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.types]
+                boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.objects]
                 diagram = functools.reduce(lambda f, g: f @ g, boxes,
                                            wiring.Id(Ty()))
                 macro = functools.partial(self.sample_operation, diagram)
