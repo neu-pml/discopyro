@@ -274,6 +274,8 @@ class FreeOperad(pyro.nn.PyroModule):
             return cart_closed.Box(box.name, box.dom, box.cod, lambda *xs: (),
                                    data=box.data)
         dest = self._index(box.cod)
+        if dist.is_validation_enabled():
+            nx.shortest_path(self._graph, box.dom, box.cod)
 
         location = box.dom
         path = Id(box.dom)
