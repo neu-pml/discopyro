@@ -168,6 +168,17 @@ class FreeOperad(pyro.nn.PyroModule):
                 self._add_type(cod)
         self._graph.add_node(obj, index=len(self._graph))
 
+    def _add_macro(self, macro, dom, cod, arrow_index):
+        assert isinstance(macro, wiring.Diagram)
+        self._add_type(dom)
+        self._add_type(cod)
+
+        if not macro in self._graph:
+            self._graph.add_node(macro, index=len(self._graph),
+                                 arrow_index=arrow_index)
+            self._graph.add_edge(dom, macro)
+            self._graph.add_edge(macro, cod)
+
     def _index(self, node, arrow=False):
         key = 'arrow_index' if arrow else 'index'
         return self._graph.nodes[node][key]
