@@ -49,8 +49,6 @@ class FreeOperad(pyro.nn.PyroModule):
         self._graph = nx.DiGraph()
         self._add_type(Ty())
         for i, gen in enumerate(generators):
-            assert isinstance(gen, cart_closed.Box)
-
             if gen.dom not in self._graph:
                 self._add_type(gen.dom)
             self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
@@ -70,7 +68,6 @@ class FreeOperad(pyro.nn.PyroModule):
             self._graph.nodes[obj]['type_index'] = i
 
         for i, elem in enumerate(global_elements):
-            assert isinstance(elem, cart_closed.Box)
             assert elem.dom == Ty()
 
             self._graph.add_node(elem, index=len(self._graph),
@@ -134,6 +131,24 @@ class FreeOperad(pyro.nn.PyroModule):
         if isinstance(arrow, Ty):
             return arrow
         return list(self._graph.out_edges(arrow))[0][1]
+
+    def _add_generator(self, gen, arrow_index, name='generator'):
+        assert isinstance(gen, cart_closed.Box)
+        self._add_type(gen.dom)
+        self._add_type(gen.cod)
+
+        if gen not in self._graph:
+            self._graph.add_node(gen, index=len(self._graph),
+                                 arrow_index=arrow_index)
+            self._graph.add_edge(gen.dom, gen)
+            self._graph.add_edge(gen, gen.cod)
+
+            if isinstance(gen.function, nn.Module):
+                self.add_module(name, gen.function)
+            if isinstance(gen, cart_closed.DaggerBox):
+                dagger = gen.dagger()
+                if isinstance(dagger.function, nn.Module):
+                    self.add_module(name + '_dagger', dagger.function)
 
     def _add_type(self, obj):
         """Add an type as a node to the graph representing the free operad
