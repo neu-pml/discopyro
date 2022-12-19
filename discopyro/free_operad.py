@@ -49,39 +49,15 @@ class FreeOperad(pyro.nn.PyroModule):
         self._graph = nx.DiGraph()
         self._add_type(Ty())
         for i, gen in enumerate(generators):
-            if gen.dom not in self._graph:
-                self._add_type(gen.dom)
-            self._graph.add_node(gen, index=len(self._graph), arrow_index=i)
-            if gen.cod not in self._graph:
-                self._add_type(gen.cod)
-            self._graph.add_edge(gen.dom, gen)
-            self._graph.add_edge(gen, gen.cod)
-
-            if isinstance(gen.function, nn.Module):
-                self.add_module('generator_%d' % i, gen.function)
-            if isinstance(gen, cart_closed.DaggerBox):
-                dagger = gen.dagger()
-                if isinstance(dagger.function, nn.Module):
-                    self.add_module('generator_%d_dagger' % i, dagger.function)
+            self._add_generator(gen, i, name='generator_%d' % i)
 
         for i, obj in enumerate(self.obs):
             self._graph.nodes[obj]['type_index'] = i
 
         for i, elem in enumerate(global_elements):
             assert elem.dom == Ty()
-
-            self._graph.add_node(elem, index=len(self._graph),
-                                 arrow_index=len(generators) + i)
-            self._graph.add_edge(Ty(), elem)
-            self._graph.add_edge(elem, elem.cod)
-
-            if isinstance(elem.function, nn.Module):
-                self.add_module('global_element_%d' % i, elem.function)
-            if isinstance(elem, cart_closed.DaggerBox):
-                dagger = elem.dagger()
-                if isinstance(dagger.function, nn.Module):
-                    self.add_module('global_element_%d_dagger' % i,
-                                    dagger.function)
+            self._add_generator(elem, len(generators) + 1,
+                                name='global_element_%d' % i)
 
         for i, obj in enumerate(self.compound_obs):
             if isinstance(obj, Under):
@@ -93,11 +69,8 @@ class FreeOperad(pyro.nn.PyroModule):
                                            wiring.Id(Ty()))
                 macro = functools.partial(self.sample_operation, diagram)
 
-            arrow_index = len(generators) + len(global_elements) + i
-            self._graph.add_node(macro, index=len(self._graph),
-                                 arrow_index=arrow_index)
-            self._graph.add_edge(Ty(), macro)
-            self._graph.add_edge(macro, obj)
+            self._add_macro(macro, Ty(), obj,
+                            len(generators) + len(global_elements) + i)
 
         self.arrow_weight_loc = pnn.PyroParam(
             torch.zeros(len(self.ars) + len(self.macros)),
