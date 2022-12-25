@@ -64,7 +64,10 @@ class FreeOperad(pyro.nn.PyroModule):
                 box = wiring.Box('', obj.left, obj.right, data={})
                 macro = functools.partial(self.sample_operation, box)
             else:
-                boxes = [wiring.Box('', Ty(), Ty(ob)) for ob in obj.objects]
+                arrows_in = lambda t: list(self._type_generators(t, False))
+
+                boxes = [wiring.Box('', Ty(), chunk) for chunk
+                         in self._chunk_type(obj, arrows_in)]
                 diagram = functools.reduce(lambda f, g: f @ g, boxes,
                                            wiring.Id(Ty()))
                 macro = functools.partial(self.sample_operation, diagram)
@@ -155,6 +158,16 @@ class FreeOperad(pyro.nn.PyroModule):
     def _index(self, node, arrow=False):
         key = 'arrow_index' if arrow else 'index'
         return self._graph.nodes[node][key]
+
+    def _chunk_type(self, ty):
+        chunking = []
+        remainder = ty
+        while len(remainder):
+            i = max((i for i in range(1, len(remainder))
+                     if remainder[:i] in self._graph), default=1)
+            chunking.append(remainder[:i])
+            remainder = remainder[i:]
+        return chunking
 
     @property
     def param_shapes(self):
