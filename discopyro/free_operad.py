@@ -1,8 +1,10 @@
 import collections
+import functools
+import itertools
+
 from discopy.biclosed import Id, Under
 from discopy.monoidal import Ty
 import discopy.wiring as wiring
-import functools
 import matplotlib.pyplot as plt
 
 plt.rcParams.update(
@@ -59,21 +61,29 @@ class FreeOperad(pyro.nn.PyroModule):
             self._add_generator(elem, len(generators) + 1,
                                 name='global_element_%d' % i)
 
-        for i, obj in enumerate(self.compound_obs):
-            if isinstance(obj, Under):
-                box = wiring.Box('', obj.left, obj.right, data={})
-                macro = functools.partial(self.sample_operation, box)
+        stack = set(self.compound_obs)
+        i = 0
+        while stack:
+            ty = stack.pop()
+            if isinstance(ty, Under):
+                diagram = wiring.Box('', obj.left, obj.right, data={})
+                self._add_macro(diagram, Ty(), obj,
+                                len(generators) + len(global_elements) + i)
             else:
-                arrows_in = lambda t: list(self._type_generators(t, False))
-
-                boxes = [wiring.Box('', Ty(), chunk) for chunk
-                         in self._chunk_type(obj, arrows_in)]
-                diagram = functools.reduce(lambda f, g: f @ g, boxes,
-                                           wiring.Id(Ty()))
-                macro = functools.partial(self.sample_operation, diagram)
-
-            self._add_macro(macro, Ty(), obj,
-                            len(generators) + len(global_elements) + i)
+                chunk_inhabitants = [{(ar.dom, chunk) for (ar, _, _, _)
+                                      in self._type_generators(chunk, False)
+                                      if isinstance(ar, cart_closed.Box)}
+                                     for chunk in self._chunk_type(ty)]
+                for tensor in itertools.product(*chunk_inhabitants):
+                    boxes = [wiring.Box('', dom, cod) for dom, cod in tensor]
+                    diagram = functools.reduce(lambda f, g: f @ g, boxes,
+                                               wiring.Id(Ty()))
+                    if util.type_contains(ty, diagram.dom):
+                        continue
+                    if diagram.dom not in self._graph:
+                        stack.add(diagram.dom)
+                    self._add_macro(diagram, diagram.dom, diagram.cod,
+                                    len(generators) + len(global_elements) + i)
 
         self.arrow_weight_loc = pnn.PyroParam(
             torch.zeros(len(self.ars) + len(self.macros)),
@@ -322,9 +332,13 @@ class FreeOperad(pyro.nn.PyroModule):
                                     del updated_data[k]
 
                         path_data = updated_data
+                elif isinstance(gen, wiring.Diagram):
+                    operation = self.sample_operation(gen, energies,
+                                                      temperature,
+                                                      min_depth - len(path) - 1,
+                                                      infer)
                 else:
-                    operation = gen(energies, temperature,
-                                    min_depth - len(path) - 1, infer)
+                    raise NotImplementedError()
                 path = path >> operation
                 location = cod
 
