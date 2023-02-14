@@ -312,7 +312,7 @@ class FreeOperad(pyro.nn.PyroModule):
                         path_data = updated_data
                 else:
                     operation = gen(energies, temperature,
-                                   min_depth - len(path) - 1, infer)
+                                    min_depth - len(path) - 1, infer)
                 path = path >> operation
                 location = cod
 
