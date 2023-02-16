@@ -1,6 +1,17 @@
 from discopy.monoidal import Ty
 from . import cart_closed
 
+def type_contains(tx, ty):
+    if len(ty) < len(tx):
+        return False
+    for i, ob in enumerate(ty.objects):
+        if ob == tx[0]:
+            for j, x in enumerate(tx.objects):
+                if i + j >= len(ty) or ty[i+j] != x:
+                    return False
+            return True
+    return False
+
 def node_name(node):
     if isinstance(node, (cart_closed.Box, Ty)):
         return str(node)
