@@ -4,7 +4,7 @@ cycler==0.10.0
 decorator==5.1.0
 discopy==0.3.7.1
 fonttools==4.25.0
-ipython==7.31.1
+ipython==8.10.0
 jedi==0.18.0
 Jinja2==3.0.2
 jsonpickle==2.0.0
