@@ -4,9 +4,9 @@ from . import cart_closed
 def type_contains(tx, ty):
     if len(ty) < len(tx):
         return False
-    for i, ob in enumerate(ty.objects):
+    for i, ob in enumerate(ty.inside):
         if ob == tx[0]:
-            for j, x in enumerate(tx.objects):
+            for j, x in enumerate(tx.inside):
                 if i + j >= len(ty) or ty[i+j] != x:
                     return False
             return True
