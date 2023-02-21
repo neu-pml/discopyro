@@ -222,6 +222,9 @@ def substitute(t, sub):
         return sub[t.name]
     return t
 
+def equiv(a, b, substitution={}):
+    return unifier(a, b) is not None
+
 def fold_arrow(ts):
     """Combine a list of types into an arrow type
 
