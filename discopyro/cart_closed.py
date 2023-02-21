@@ -2,7 +2,7 @@
 :class:`discopy.python.Function` categories
 """
 
-from discopy.cartesian import Box
+from discopy.cartesian import Box, Category, Diagram, Functor
 from discopy.python import Function
 from discopy.cat import Arrow
 from discopy.rigid import PRO
@@ -47,7 +47,7 @@ class DaggerBox(Box):
         :return: Text description of box
         :rtype: str
         """
-        function_rep = repr(self.function) if self.function else ''
+        function_rep = repr(self.data['function']) if self.data['function'] else ''
         return "DaggerBox(name={}, dom={}, cod={}, function={})".format(
             repr(self.name), self.dom, self.cod, function_rep
         )
@@ -103,14 +103,14 @@ def functionize(f):
     :type f: :class:`Box`
     """
     if isinstance(f, DaggerBox):
-        dagger_function = f.dagger().function
-        return DaggerFunction(len(f.dom), len(f.cod), f.function,
+        dagger_function = f.dagger().data['function']
+        return DaggerFunction(len(f.dom), len(f.cod), f.data['function'],
                               dagger_function)
-    return Function(len(f.dom), len(f.cod), f.function)
+    return Function(len(f.dom), len(f.cod), f.data['function'])
 
 _PYTHON_FUNCTOR = Functor(
     ob=lambda t: PRO(len(t)), ar=functionize,
-    ob_factory=PRO, ar_factory=Function
+    cod=Category(PRO, Function)
 )
 
 Diagram.__call__ = lambda self, *values: _PYTHON_FUNCTOR(self)(*values)
