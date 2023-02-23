@@ -2,7 +2,8 @@
 :class:`discopy.closed.Ty` instances
 """
 
-from discopy.biclosed import Box, Ty, Under
+from discopy.closed import Under
+from discopy.monoidal import Box, Ty
 from discopy.cat import Arrow, Ob, AxiomError
 import functools
 from typing import Generic, TypeVar
@@ -10,7 +11,7 @@ import uuid
 
 class TyVar(Ty):
     """Represents a type variable identified by a name, as a subclass of the
-    :class:`discopy.biclosed.Ty` class
+    :class:`discopy.monoidal.Ty` class
 
     :param str name: A name for the type variable
     """
@@ -22,7 +23,7 @@ def pretty_type(ty, parenthesize=False):
     """Represents a type in nice LaTeX math formatting
 
     :param ty: A type to represent
-    :type ty: :class:`discopy.biclosed.Ty`
+    :type ty: :class:`discopy.monoidal.Ty`
     :param bool parenthesize: Whether to enclose the result in parentheses
 
     :return: LaTeX math formatted representation of `ty`
@@ -34,29 +35,29 @@ def pretty_type(ty, parenthesize=False):
         if parenthesize:
             result = '(%s)' % result
     else:
-        if not ty.objects:
+        if not ty.inside:
             result = '\\top'
-        result = ' \\times '.join([str(obj) for obj in ty.objects])
+        result = ' \\times '.join([str(obj) for obj in ty.inside])
     return result
 
 def type_compound(ty):
     """Predicate describing whether a type is compound or not
 
     :param ty: A type
-    :type ty: :class:`discopy.biclosed.Ty`
+    :type ty: :class:`discopy.monoidal.Ty`
 
-    :return: Whether `ty` is compound (a :class:`discopy.biclosed.Under` or a
+    :return: Whether `ty` is compound (a :class:`discopy.monoidal.Under` or a
              monoidal product type)
     :rtype: bool
     """
     return isinstance(ty, Under) or len(ty) > 1
 
 def base_elements(ty):
-    """Compute the set of primitive :class:`discopy.biclosed.Ty` elements within
+    """Compute the set of primitive :class:`discopy.monoidal.Ty` elements within
        a type
 
     :param ty: A type
-    :type ty: :class:`discopy.biclosed.Ty`
+    :type ty: :class:`discopy.monoidal.Ty`
 
     :return: Set of `ty`'s primitive elements
     :rtype: set
@@ -65,8 +66,8 @@ def base_elements(ty):
         return Ty(ty)
     if isinstance(ty, Under):
         return base_elements(ty.left) | base_elements(ty.right)
-    bases = {ob for ob in ty.objects if not isinstance(ob, Under)}
-    recursives = set().union(*[base_elements(ob) for ob in ty.objects])
+    bases = {ob for ob in ty.inside if not isinstance(ob, Under)}
+    recursives = set().union(*[base_elements(ob) for ob in ty.inside])
     return bases | recursives
 
 def unique_identifier():
@@ -81,7 +82,7 @@ def unique_ty():
     """Generate a type with a universally unique name
 
     :return: A type with a universally unique name
-    :rtype: :class:`discopy.biclosed.Ty`
+    :rtype: :class:`discopy.monoidal.Ty`
     """
     return Ty(unique_identifier())
 
@@ -92,9 +93,9 @@ class UnificationException(Exception):
     """Unification failure
 
     :param x: Type on left side of unification equation
-    :type x: :class:`discopy.biclosed.Ty`
+    :type x: :class:`discopy.monoidal.Ty`
     :param y: Type on right side of unification equation
-    :type y: :class:`discopy.biclosed.Ty`
+    :type y: :class:`discopy.monoidal.Ty`
     :param k: Substitution key whose resolution was subject to the equation
     :type k: str or None
     """
@@ -157,8 +158,8 @@ def try_unify(a, b, subst={}):
     if isinstance(b, TyVar):
         return a, {b.name: a}
     if isinstance(a, Ty) and isinstance(b, Ty) and\
-       len(a.objects) == len(b.objects):
-        results = [try_unify(ak, bk) for ak, bk in zip(a.objects, b.objects)]
+       len(a.inside) == len(b.inside):
+        results = [try_unify(ak, bk) for ak, bk in zip(a.inside, b.inside)]
         ty = Ty(*[ty for ty, _ in results])
         subst = functools.reduce(try_merge_substitution,
                                  [subst for _, subst in results], subst)
@@ -216,10 +217,13 @@ def substitute(t, sub):
     if isinstance(t, Under):
         return substitute(t.left, sub) >> substitute(t.right, sub)
     if isinstance(t, Ty):
-        return Ty(*[substitute(ty, sub) for ty in t.objects])
+        return Ty(*[substitute(ty, sub) for ty in t.inside])
     if isinstance(t, TyVar) and t.name in sub:
         return sub[t.name]
     return t
+
+def equiv(a, b, substitution={}):
+    return unifier(a, b) is not None
 
 def fold_arrow(ts):
     """Combine a list of types into an arrow type
@@ -269,4 +273,4 @@ def unfold_product(ty):
     """
     if isinstance(ty, Under):
         return [ty]
-    return [Ty(ob) for ob in ty.objects]
+    return [Ty(ob) for ob in ty.inside]

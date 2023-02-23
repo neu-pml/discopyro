@@ -2,8 +2,8 @@ import collections
 import functools
 import itertools
 
-from discopy.biclosed import Id, Under
-from discopy.monoidal import Ty
+from discopy.closed import Under
+from discopy.monoidal import Id, Ty
 import discopy.wiring as wiring
 import matplotlib.pyplot as plt
 
@@ -57,7 +57,7 @@ class FreeOperad(pyro.nn.PyroModule):
             self._graph.nodes[obj]['type_index'] = i
 
         for i, elem in enumerate(global_elements):
-            assert elem.dom == Ty()
+            assert unification.equiv(elem.dom, Ty())
             self._add_generator(elem, len(generators) + 1,
                                 name='global_element_%d' % i)
 
@@ -129,12 +129,12 @@ class FreeOperad(pyro.nn.PyroModule):
             self._graph.add_edge(gen.dom, gen)
             self._graph.add_edge(gen, gen.cod)
 
-            if isinstance(gen.function, nn.Module):
-                self.add_module(name, gen.function)
+            if isinstance(gen.data['function'], nn.Module):
+                self.add_module(name, gen.data['function'])
             if isinstance(gen, cart_closed.DaggerBox):
                 dagger = gen.dagger()
-                if isinstance(dagger.function, nn.Module):
-                    self.add_module(name + '_dagger', dagger.function)
+                if isinstance(dagger.data['function'], nn.Module):
+                    self.add_module(name + '_dagger', dagger.data['function'])
 
     def _add_type(self, obj):
         """Add an type as a node to the graph representing the free operad
@@ -292,7 +292,7 @@ class FreeOperad(pyro.nn.PyroModule):
         :returns: An operation from `src` to `dest_mask`
         :rtype: :class:`discopy.biclosed.Diagram`
         """
-        if box.cod == Ty() and not box.data:
+        if unification.equiv(box.cod, Ty()) and not box.data:
             return cart_closed.Box(box.name, box.dom, box.cod, lambda *xs: (),
                                    data=box.data)
         dest = self._index(box.cod)
