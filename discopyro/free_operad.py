@@ -3,7 +3,7 @@ import functools
 import itertools
 
 from discopy.closed import Under
-from discopy.monoidal import Id, Ty
+from discopy.monoidal import Box, Category, Id, Ty
 import discopy.wiring as wiring
 import matplotlib.pyplot as plt
 
@@ -369,7 +369,7 @@ class FreeOperad(pyro.nn.PyroModule):
                                                                  temperature,
                                                                  min_depth,
                                                                  infer),
-                                     ar_factory=cart_closed.Box)
+                                     cod=Category(Ty, Box))
             return functor(diagram)
 
     def forward(self, diagram, min_depth=0, infer={}, temperature=None,
