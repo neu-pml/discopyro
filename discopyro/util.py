@@ -1,5 +1,4 @@
-from discopy.monoidal import Ty
-from . import cart_closed
+from discopy.monoidal import Box, Ty
 
 def type_contains(tx, ty):
     if len(ty) < len(tx):
@@ -13,7 +12,7 @@ def type_contains(tx, ty):
     return False
 
 def node_name(node):
-    if isinstance(node, (cart_closed.Box, Ty)):
+    if isinstance(node, (Box, Ty)):
         return str(node)
     return 'macro[%d]' % id(node)
 
@@ -41,8 +40,8 @@ class GeneratorPredicate:
         result = True
 
         if self._path_data:
-            fit = not isinstance(gen, cart_closed.Box) or\
-                  data_fits_spec(gen.data, self._path_data)
+            fit = not isinstance(gen, Box) or data_fits_spec(gen.data,
+                                                             self._path_data)
             result = result and fit
 
         if self._path_len + 1 < self._min_len:
