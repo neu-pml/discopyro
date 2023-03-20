@@ -131,10 +131,6 @@ class FreeOperad(pyro.nn.PyroModule):
 
             if isinstance(gen.data['function'], nn.Module):
                 self.add_module(name, gen.data['function'])
-            if isinstance(gen, dagger.DaggerBox):
-                dag = gen.dagger()
-                if isinstance(dag.data['function'], nn.Module):
-                    self.add_module(name + '_dagger', dag.data['function'])
 
     def _add_type(self, obj):
         """Add an type as a node to the graph representing the free operad
