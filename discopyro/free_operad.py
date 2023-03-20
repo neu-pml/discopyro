@@ -3,7 +3,8 @@ import functools
 import itertools
 
 from discopy.closed import Under
-from discopy.monoidal import Box, Category, Id, Ty
+from discopy.monoidal import Box, Category, Diagram, Functor, Id, PRO, Ty
+from discopy.python import Function
 import discopy.wiring as wiring
 import matplotlib.pyplot as plt
 
@@ -31,9 +32,25 @@ import torch.distributions.constraints as constraints
 import torch.nn as nn
 import torch.nn.functional as F
 
-from . import dagger, unification, util
+from . import unification, util
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
+
+def functionize(f):
+    """Transform a :class:`discopy.monoidal.Box` into a
+       :class:`discopy.python.Function`
+
+    :param f: A box with a callable function as data
+    :type f: :class:`Box`
+    """
+    return Function(f.data['function'], PRO(len(f.dom)), PRO(len(f.cod)))
+
+_PYTHON_FUNCTOR = Functor(
+    ob=lambda t: PRO(len(t)), ar=functionize,
+    cod=Category(PRO, Function)
+)
+
+Diagram.__call__ = lambda self, *values: _PYTHON_FUNCTOR(self)(*values)
 
 class FreeOperad(pyro.nn.PyroModule):
     """Pyro module representing a free operad as a graph, and implementing
