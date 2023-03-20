@@ -2,10 +2,9 @@
 :class:`discopy.python.Function` categories
 """
 
-from discopy.cartesian import Box, Category, Diagram, Functor
+from discopy.monoidal import Box, Category, Diagram, Functor, PRO
 from discopy.python import Function
 from discopy.cat import Arrow
-from discopy.rigid import PRO
 
 from . import unification
 
@@ -14,9 +13,9 @@ class DaggerBox(Box):
 
     :param str name: Name of the box
     :param dom: Domain of the box
-    :type dom: :class:`discopy.cartesian.Ty`
+    :type dom: :class:`discopy.monoidal.Ty`
     :param cod: Codomain of the box
-    :type cod: :class:`discopy.cartesian.Ty`
+    :type cod: :class:`discopy.monoidal.Ty`
 
     :param function: A Python callable, or None
     :param dagger_function: A Python callable, or None, implementing the dagger
@@ -106,7 +105,7 @@ def functionize(f):
         dagger_function = f.dagger().data['function']
         return DaggerFunction(len(f.dom), len(f.cod), f.data['function'],
                               dagger_function)
-    return Function(len(f.dom), len(f.cod), f.data['function'])
+    return Function(f.data['function'], PRO(len(f.dom)), PRO(len(f.cod)))
 
 _PYTHON_FUNCTOR = Functor(
     ob=lambda t: PRO(len(t)), ar=functionize,
