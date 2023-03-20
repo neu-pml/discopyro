@@ -31,7 +31,7 @@ import torch.distributions.constraints as constraints
 import torch.nn as nn
 import torch.nn.functional as F
 
-from . import cart_closed, unification, util
+from . import dagger, unification, util
 
 NONE_DEFAULT = collections.defaultdict(lambda: None)
 
@@ -72,7 +72,7 @@ class FreeOperad(pyro.nn.PyroModule):
             else:
                 chunk_inhabitants = [{(ar.dom, chunk) for (ar, _, _, _)
                                       in self._type_generators(chunk, False)
-                                      if isinstance(ar, cart_closed.Box)}
+                                      if isinstance(ar, Box)}
                                      for chunk in self._chunk_type(ty)]
                 for tensor in itertools.product(*chunk_inhabitants):
                     boxes = [wiring.Box('', dom, cod) for dom, cod in tensor]
@@ -119,7 +119,7 @@ class FreeOperad(pyro.nn.PyroModule):
         return list(self._graph.out_edges(arrow))[0][1]
 
     def _add_generator(self, gen, arrow_index, name='generator'):
-        assert isinstance(gen, cart_closed.Box)
+        assert isinstance(gen, Box)
         self._add_type(gen.dom)
         self._add_type(gen.cod)
 
@@ -131,10 +131,10 @@ class FreeOperad(pyro.nn.PyroModule):
 
             if isinstance(gen.data['function'], nn.Module):
                 self.add_module(name, gen.data['function'])
-            if isinstance(gen, cart_closed.DaggerBox):
-                dagger = gen.dagger()
-                if isinstance(dagger.data['function'], nn.Module):
-                    self.add_module(name + '_dagger', dagger.data['function'])
+            if isinstance(gen, dagger.DaggerBox):
+                dag = gen.dagger()
+                if isinstance(dag.data['function'], nn.Module):
+                    self.add_module(name + '_dagger', dag.data['function'])
 
     def _add_type(self, obj):
         """Add an type as a node to the graph representing the free operad
@@ -244,7 +244,7 @@ class FreeOperad(pyro.nn.PyroModule):
         :rtype: list
         """
         return [node for node in self._graph
-                if isinstance(node, cart_closed.Box)]
+                if isinstance(node, Box)]
 
     @property
     def macros(self):
@@ -254,7 +254,7 @@ class FreeOperad(pyro.nn.PyroModule):
         :rtype: list
         """
         return [node for node in self._graph if not isinstance(node, Ty) and\
-                not isinstance(node, cart_closed.Box)]
+                not isinstance(node, Box)]
 
     @pnn.pyro_method
     def weights_matrix(self, arrow_weights):
@@ -293,7 +293,7 @@ class FreeOperad(pyro.nn.PyroModule):
         :rtype: :class:`discopy.biclosed.Diagram`
         """
         if unification.equiv(box.cod, Ty()) and not box.data:
-            return cart_closed.Box(box.name, box.dom, box.cod, lambda *xs: (),
+            return Box(box.name, box.dom, box.cod, lambda *xs: (),
                                    data=box.data)
         dest = self._index(box.cod)
         if dist.is_validation_enabled():
@@ -303,7 +303,7 @@ class FreeOperad(pyro.nn.PyroModule):
         path = Id(box.dom)
         path_data = box.data
         with pyro.markov():
-            while location != box.cod or isinstance(path, Id):
+            while location != box.cod or not path.inside:
                 pred = util.GeneratorPredicate(len(path), min_depth, path_data,
                                                box.cod)
                 generators = list(self._type_generators(location, True, pred))
@@ -319,7 +319,7 @@ class FreeOperad(pyro.nn.PyroModule):
                                     infer=infer)
 
                 gen, cod, _, _ = generators[g_idx.item()]
-                if isinstance(gen, cart_closed.Box):
+                if isinstance(gen, Box):
                     operation = gen
                     if gen.data and path_data:
                         updated_data = {**path_data}
