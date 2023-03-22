@@ -25,18 +25,30 @@ def data_fits_spec(data, spec):
             fits.append(True)
     return all(fits)
 
-class GeneratorPredicate:
-    def __init__(self, path_len, min_len, path_data, cod):
+class HomsetPredicate:
+    def __init__(self, path_len, min_len, cod):
         self._path_len = path_len
         self._min_len = min_len
-        self._path_data = path_data
         self._cod = cod
 
     @property
     def cod(self):
         return self._cod
 
-    def __call__(self, gen, cod):
+    def __call__(self, edge):
+        dom, cod = edge
+        result = True
+        if self._path_len + 1 < self._min_len:
+            result = result and cod != self._cod
+        result = result and cod != Ty()
+
+        return result
+
+class GeneratorPredicate:
+    def __init__(self, path_data):
+        self._path_data = path_data
+
+    def __call__(self, gen):
         result = True
 
         if self._path_data:
@@ -44,7 +56,4 @@ class GeneratorPredicate:
                                                              self._path_data)
             result = result and fit
 
-        if self._path_len + 1 < self._min_len:
-            result = result and cod != self._cod
-        result = result and (cod != Ty() or self._cod == Ty())
         return result
