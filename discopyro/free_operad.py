@@ -344,7 +344,7 @@ class FreeOperad(pyro.nn.PyroModule):
                 path_data = updated_data
         elif isinstance(generator, wiring.Diagram):
             arrow = self.sample_operation(generator, weights, temperature + 1,
-                                          min_depth - len(path) - 1, infer)
+                                          min_depth, infer)
         else:
             raise NotImplementedError()
 
@@ -399,7 +399,8 @@ class FreeOperad(pyro.nn.PyroModule):
 
                 operation, path_data = self.hom_arrow(homs[b_idx.item()],
                                                       path_data, weights,
-                                                      temperature, min_depth,
+                                                      temperature,
+                                                      min_depth - len(path) - 1,
                                                       infer)
                 path = path >> operation
                 location = operation.cod
