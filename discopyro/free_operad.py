@@ -322,7 +322,7 @@ class FreeOperad(pyro.nn.PyroModule):
 
         mask = torch.tensor([1. if isinstance(gen, Box) else (temperature+1e-10)
                              for gen in generators])
-        masked_ws = weights[indices] * mask.to(device=temperature.device)
+        masked_ws = weights[indices] / mask.to(device=temperature.device)
 
         generator_categorical = dist.Categorical(probs=masked_ws).to_event(0)
         g_idx = pyro.sample('hom(%s, %s)' % hom, generator_categorical,
