@@ -381,8 +381,9 @@ class FreeOperad(pyro.nn.PyroModule):
         path = Id(box.dom)
         path_data = box.data
         with pyro.markov():
-            while location != box.cod or not path.inside:
-                pred = util.HomsetPredicate(len(path), min_depth, box.cod)
+            while location != box.cod or path_data:
+                pred = util.HomsetPredicate(len(path), min_depth, box.cod,
+                                            self._generators, path_data)
 
                 homs = list(filter(pred, self._skeleton_bridges(location,
                                                                 box.cod)))
@@ -390,7 +391,7 @@ class FreeOperad(pyro.nn.PyroModule):
                                   dtype=torch.long)
                 bs = bs.to(device=temperature.device)
 
-                logits = self.diffusions[bs, dest].log() / (temperature + 1e-10)
+                logits = self.diffusions[bs, dest].log() / temperature
                 homs_categorical = dist.Categorical(logits=logits)
                 b_idx = pyro.sample('bridge{%s -> %s, %s}' % (box.dom, box.cod,
                                                               location),
