@@ -3,4 +3,4 @@ boxes, and free categories.
 """
 from . import *
 
-__all__ = ['cart_closed', 'free_operad', 'unification']
+__all__ = ['free_operad', 'unification']

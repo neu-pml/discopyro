@@ -53,7 +53,7 @@ def type_compound(ty):
     return isinstance(ty, Under) or len(ty) > 1
 
 def base_elements(ty):
-    """Compute the set of primitive :class:`discopy.monoidal.Ty` elements within
+    """Compute the set of primitive :class:`discopy.cat.Ob` elements within
        a type
 
     :param ty: A type
@@ -67,7 +67,8 @@ def base_elements(ty):
     if isinstance(ty, Under):
         return base_elements(ty.left) | base_elements(ty.right)
     bases = {ob for ob in ty.inside if not isinstance(ob, Under)}
-    recursives = set().union(*[base_elements(ob) for ob in ty.inside])
+    recursives = set().union(*[base_elements(ob) for ob in ty.inside
+                               if isinstance(ob, Under)])
     return bases | recursives
 
 def unique_identifier():

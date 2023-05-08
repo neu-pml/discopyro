@@ -1,5 +1,4 @@
-from discopy.monoidal import Ty
-from . import cart_closed
+from discopy.monoidal import Box, Ty
 
 def type_contains(tx, ty):
     if len(ty) < len(tx):
@@ -13,7 +12,7 @@ def type_contains(tx, ty):
     return False
 
 def node_name(node):
-    if isinstance(node, (cart_closed.Box, Ty)):
+    if isinstance(node, (Box, Ty)):
         return str(node)
     return 'macro[%d]' % id(node)
 
@@ -26,26 +25,40 @@ def data_fits_spec(data, spec):
             fits.append(True)
     return all(fits)
 
-class GeneratorPredicate:
-    def __init__(self, path_len, min_len, path_data, cod):
+class HomsetPredicate:
+    def __init__(self, path_len, min_len, cod, generators={}, path_data={}):
         self._path_len = path_len
         self._min_len = min_len
-        self._path_data = path_data
         self._cod = cod
+        self._generators = generators
+        self._path_data = path_data
 
     @property
     def cod(self):
         return self._cod
 
-    def __call__(self, gen, cod):
+    def __call__(self, edge):
+        dom, cod = edge
+        result = True
+        if self._path_len + 1 < self._min_len:
+            result = result and cod != self._cod
+        result = result and cod != Ty()
+
+        gen_pred = GeneratorPredicate(self._path_data)
+        result = result and any(gen_pred(gen) for gen in self._generators[edge])
+
+        return result
+
+class GeneratorPredicate:
+    def __init__(self, path_data):
+        self._path_data = path_data
+
+    def __call__(self, gen):
         result = True
 
         if self._path_data:
-            fit = not isinstance(gen, cart_closed.Box) or\
-                  data_fits_spec(gen.data, self._path_data)
+            fit = not isinstance(gen, Box) or data_fits_spec(gen.data,
+                                                             self._path_data)
             result = result and fit
 
-        if self._path_len + 1 < self._min_len:
-            result = result and cod != self._cod
-        result = result and (cod != Ty() or self._cod == Ty())
         return result
