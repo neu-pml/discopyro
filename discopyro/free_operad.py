@@ -315,20 +315,19 @@ class FreeOperad(pyro.nn.PyroModule):
         if hom not in self._graph:
             raise NotImplementedError()
 
-        pred = util.GeneratorPredicate(path_data)
-        generators = list(filter(pred, self._generators[hom]))
-        indices = torch.tensor([self._generator_indices[g] for g in generators],
+        indices = torch.tensor([self._generator_indices[g] for g
+                                in self._generators[hom]],
                                dtype=torch.long).to(device=temperature.device)
 
         mask = torch.tensor([1. if isinstance(gen, Box) else (temperature+1e-10)
-                             for gen in generators])
+                             for gen in self._generators[hom]])
         masked_ws = weights[indices] / mask.to(device=temperature.device)
 
         generator_categorical = dist.Categorical(probs=masked_ws).to_event(0)
         g_idx = pyro.sample('hom(%s, %s)' % hom, generator_categorical,
                             infer=infer)
 
-        generator = generators[g_idx.item()]
+        generator = self._generators[hom][g_idx.item()]
         if isinstance(generator, Box):
             arrow = generator
         elif isinstance(generator, wiring.Diagram):
