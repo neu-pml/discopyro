@@ -17,12 +17,11 @@ def node_name(node):
     return 'macro[%d]' % id(node)
 
 class HomsetPredicate:
-    def __init__(self, path_len, min_len, cod, generators={}, path_data={}):
+    def __init__(self, path_len, min_len, cod, generators={}):
         self._path_len = path_len
         self._min_len = min_len
         self._cod = cod
         self._generators = generators
-        self._path_data = path_data
 
     @property
     def cod(self):
