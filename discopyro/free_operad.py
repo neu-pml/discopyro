@@ -331,17 +331,6 @@ class FreeOperad(pyro.nn.PyroModule):
         generator = generators[g_idx.item()]
         if isinstance(generator, Box):
             arrow = generator
-            if generator.data and path_data:
-                updated_data = {**path_data}
-                for k, v in path_data.items():
-                    if not callable(v):
-                        next_v = v[1:]
-                        if next_v:
-                            updated_data[k] = next_v
-                        else:
-                            del updated_data[k]
-
-                path_data = updated_data
         elif isinstance(generator, wiring.Diagram):
             arrow = self.sample_operation(generator, weights, temperature + 1,
                                           min_depth, infer)
@@ -381,7 +370,7 @@ class FreeOperad(pyro.nn.PyroModule):
         path = Id(box.dom)
         path_data = box.data
         with pyro.markov():
-            while location != box.cod or path_data:
+            while location != box.cod:
                 pred = util.HomsetPredicate(len(path), min_depth, box.cod,
                                             self._generators, path_data)
 
