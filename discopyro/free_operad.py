@@ -293,8 +293,7 @@ class FreeOperad(pyro.nn.PyroModule):
                 if not isinstance(arrow, Box)]
 
     @pnn.pyro_method
-    def hom_arrow(self, hom, path_data, weights, temperature, min_depth=0,
-                  infer={}):
+    def hom_arrow(self, hom, weights, temperature, min_depth=0, infer={}):
         """Sample an arrow from the hom-set from type `dom` to type `cod`.
 
         :param hom: Hom-set tuple of desired operation's domain and codomain
@@ -336,7 +335,7 @@ class FreeOperad(pyro.nn.PyroModule):
         else:
             raise NotImplementedError()
 
-        return arrow, path_data
+        return arrow
 
     @pnn.pyro_method
     def path_through(self, box, weights, temperature, min_depth=0, infer={}):
@@ -367,11 +366,10 @@ class FreeOperad(pyro.nn.PyroModule):
 
         location = box.dom
         path = Id(box.dom)
-        path_data = box.data
         with pyro.markov():
             while location != box.cod:
                 pred = util.HomsetPredicate(len(path), min_depth, box.cod,
-                                            self._generators, path_data)
+                                            self._generators)
 
                 homs = list(filter(pred, self._skeleton_bridges(location,
                                                                 box.cod)))
@@ -386,11 +384,9 @@ class FreeOperad(pyro.nn.PyroModule):
                                     homs_categorical.to_event(0),
                                     infer=infer)
 
-                operation, path_data = self.hom_arrow(homs[b_idx.item()],
-                                                      path_data, weights,
-                                                      temperature,
-                                                      min_depth - len(path) - 1,
-                                                      infer)
+                operation = self.hom_arrow(homs[b_idx.item()], weights,
+                                           temperature,
+                                           min_depth - len(path) - 1, infer)
                 path = path >> operation
                 location = operation.cod
 
