@@ -293,8 +293,7 @@ class FreeOperad(pyro.nn.PyroModule):
                 if not isinstance(arrow, Box)]
 
     @pnn.pyro_method
-    def hom_arrow(self, hom, path_data, weights, temperature, min_depth=0,
-                  infer={}):
+    def hom_arrow(self, hom, weights, temperature, min_depth=0, infer={}):
         """Sample an arrow from the hom-set from type `dom` to type `cod`.
 
         :param hom: Hom-set tuple of desired operation's domain and codomain
@@ -315,20 +314,19 @@ class FreeOperad(pyro.nn.PyroModule):
         if hom not in self._graph:
             raise NotImplementedError()
 
-        pred = util.GeneratorPredicate(path_data)
-        generators = list(filter(pred, self._generators[hom]))
-        indices = torch.tensor([self._generator_indices[g] for g in generators],
+        indices = torch.tensor([self._generator_indices[g] for g
+                                in self._generators[hom]],
                                dtype=torch.long).to(device=temperature.device)
 
         mask = torch.tensor([1. if isinstance(gen, Box) else (temperature+1e-10)
-                             for gen in generators])
+                             for gen in self._generators[hom]])
         masked_ws = weights[indices] / mask.to(device=temperature.device)
 
         generator_categorical = dist.Categorical(probs=masked_ws).to_event(0)
         g_idx = pyro.sample('hom(%s, %s)' % hom, generator_categorical,
                             infer=infer)
 
-        generator = generators[g_idx.item()]
+        generator = self._generators[hom][g_idx.item()]
         if isinstance(generator, Box):
             arrow = generator
         elif isinstance(generator, wiring.Diagram):
@@ -337,7 +335,7 @@ class FreeOperad(pyro.nn.PyroModule):
         else:
             raise NotImplementedError()
 
-        return arrow, path_data
+        return arrow
 
     @pnn.pyro_method
     def path_through(self, box, weights, temperature, min_depth=0, infer={}):
@@ -368,11 +366,10 @@ class FreeOperad(pyro.nn.PyroModule):
 
         location = box.dom
         path = Id(box.dom)
-        path_data = box.data
         with pyro.markov():
             while location != box.cod:
                 pred = util.HomsetPredicate(len(path), min_depth, box.cod,
-                                            self._generators, path_data)
+                                            self._generators)
 
                 homs = list(filter(pred, self._skeleton_bridges(location,
                                                                 box.cod)))
@@ -380,18 +377,16 @@ class FreeOperad(pyro.nn.PyroModule):
                                   dtype=torch.long)
                 bs = bs.to(device=temperature.device)
 
-                logits = self.diffusions[bs, dest].log() / temperature
+                logits = self.diffusions[bs, dest].log() * temperature
                 homs_categorical = dist.Categorical(logits=logits)
                 b_idx = pyro.sample('bridge{%s -> %s, %s}' % (box.dom, box.cod,
                                                               location),
                                     homs_categorical.to_event(0),
                                     infer=infer)
 
-                operation, path_data = self.hom_arrow(homs[b_idx.item()],
-                                                      path_data, weights,
-                                                      temperature,
-                                                      min_depth - len(path) - 1,
-                                                      infer)
+                operation = self.hom_arrow(homs[b_idx.item()], weights,
+                                           temperature,
+                                           min_depth - len(path) - 1, infer)
                 path = path >> operation
                 location = operation.cod
 

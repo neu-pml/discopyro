@@ -16,22 +16,12 @@ def node_name(node):
         return str(node)
     return 'macro[%d]' % id(node)
 
-def data_fits_spec(data, spec):
-    fits = []
-    for k, v in spec.items():
-        if k in data:
-            fits.append(v(data[k]) if callable(v) else data[k] == v)
-        else:
-            fits.append(True)
-    return all(fits)
-
 class HomsetPredicate:
-    def __init__(self, path_len, min_len, cod, generators={}, path_data={}):
+    def __init__(self, path_len, min_len, cod, generators={}):
         self._path_len = path_len
         self._min_len = min_len
         self._cod = cod
         self._generators = generators
-        self._path_data = path_data
 
     @property
     def cod(self):
@@ -43,22 +33,5 @@ class HomsetPredicate:
         if self._path_len + 1 < self._min_len:
             result = result and cod != self._cod
         result = result and cod != Ty()
-
-        gen_pred = GeneratorPredicate(self._path_data)
-        result = result and any(gen_pred(gen) for gen in self._generators[edge])
-
-        return result
-
-class GeneratorPredicate:
-    def __init__(self, path_data):
-        self._path_data = path_data
-
-    def __call__(self, gen):
-        result = True
-
-        if self._path_data:
-            fit = not isinstance(gen, Box) or data_fits_spec(gen.data,
-                                                             self._path_data)
-            result = result and fit
 
         return result
