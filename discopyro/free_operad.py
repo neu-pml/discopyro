@@ -379,7 +379,7 @@ class FreeOperad(pyro.nn.PyroModule):
                                   dtype=torch.long)
                 bs = bs.to(device=temperature.device)
 
-                logits = self.diffusions[bs, dest].log() / temperature
+                logits = self.diffusions[bs, dest].log() * temperature
                 homs_categorical = dist.Categorical(logits=logits)
                 b_idx = pyro.sample('bridge{%s -> %s, %s}' % (box.dom, box.cod,
                                                               location),
