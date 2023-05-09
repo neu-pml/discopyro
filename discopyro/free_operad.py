@@ -251,7 +251,7 @@ class FreeOperad(pyro.nn.PyroModule):
             if (self.diffusions[i, j] > 0).item():
                 yield (dom, cod)
 
-    @property
+    @functools.cached_property
     def obs(self):
         """A list of the types in the free operad
 
@@ -272,7 +272,7 @@ class FreeOperad(pyro.nn.PyroModule):
             if unification.type_compound(obj):
                 yield obj
 
-    @property
+    @functools.cached_property
     def ars(self):
         """A list of the generating operations in the free operad
 
@@ -282,7 +282,7 @@ class FreeOperad(pyro.nn.PyroModule):
         return [arrow for arrow in itertools.chain(*self._generators.values())
                 if isinstance(arrow, Box)]
 
-    @property
+    @functools.cached_property
     def macros(self):
         """A list of the generating macros in the free operad
 
