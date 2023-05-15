@@ -331,8 +331,8 @@ class FreeOperad(pyro.nn.PyroModule):
             raise NotImplementedError()
 
         indices, mask = self._generator_properties(hom, temperature.device)
-        mask = torch.where(mask, torch.ones_like(mask),
-                           torch.ones_like(mask) * temperature)
+        mask = torch.where(mask, torch.ones_like(mask) * temperature,
+                           torch.ones_like(mask))
         masked_ws = weights[indices].log() * mask
 
         generator_categorical = dist.Categorical(logits=masked_ws).to_event(0)
