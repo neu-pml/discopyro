@@ -292,7 +292,7 @@ class FreeOperad(pyro.nn.PyroModule):
         return [arrow for arrow in itertools.chain(*self._generators.values())
                 if not isinstance(arrow, Box)]
 
-    @functools.cache
+    @functools.lru_cache(maxsize=32)
     def _generator_properties(self, hom, device=None):
         if not device:
             device = torch.device('cpu')
@@ -350,7 +350,7 @@ class FreeOperad(pyro.nn.PyroModule):
 
         return arrow
 
-    @functools.cache
+    @functools.lru_cache(maxsize=32)
     def _bridge_indices(self, dom, cod, pred=None, device=None):
         if not pred:
             pred = lambda *args: True
