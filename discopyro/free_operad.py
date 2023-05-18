@@ -251,7 +251,7 @@ class FreeOperad(pyro.nn.PyroModule):
             if (self.diffusions[i, j] > 0).item():
                 yield (dom, cod)
 
-    @property
+    @functools.cached_property
     def obs(self):
         """A list of the types in the free operad
 
@@ -272,7 +272,7 @@ class FreeOperad(pyro.nn.PyroModule):
             if unification.type_compound(obj):
                 yield obj
 
-    @property
+    @functools.cached_property
     def ars(self):
         """A list of the generating operations in the free operad
 
@@ -282,7 +282,7 @@ class FreeOperad(pyro.nn.PyroModule):
         return [arrow for arrow in itertools.chain(*self._generators.values())
                 if isinstance(arrow, Box)]
 
-    @property
+    @functools.cached_property
     def macros(self):
         """A list of the generating macros in the free operad
 
@@ -291,6 +291,22 @@ class FreeOperad(pyro.nn.PyroModule):
         """
         return [arrow for arrow in itertools.chain(*self._generators.values())
                 if not isinstance(arrow, Box)]
+
+    @functools.lru_cache(maxsize=32)
+    def _generator_properties(self, hom, device=None):
+        if not device:
+            device = torch.device('cpu')
+
+        indices, mask = [], []
+        for generator in self._generators[hom]:
+            indices.append(self._generator_indices[generator])
+            mask.append(isinstance(generator, Box))
+
+        with device:
+            indices = torch.tensor(indices, dtype=torch.long)
+            mask = torch.tensor(mask, dtype=torch.bool)
+
+        return indices, mask
 
     @pnn.pyro_method
     def hom_arrow(self, hom, weights, temperature, min_depth=0, infer={}):
@@ -314,13 +330,10 @@ class FreeOperad(pyro.nn.PyroModule):
         if hom not in self._graph:
             raise NotImplementedError()
 
-        indices = torch.tensor([self._generator_indices[g] for g
-                                in self._generators[hom]],
-                               dtype=torch.long).to(device=temperature.device)
-
-        mask = torch.tensor([1. if isinstance(gen, Box) else (temperature+1e-10)
-                             for gen in self._generators[hom]])
-        masked_ws = weights[indices].log() * mask.to(device=temperature.device)
+        indices, mask = self._generator_properties(hom, temperature.device)
+        mask = torch.where(mask, torch.ones_like(mask) * temperature,
+                           torch.ones_like(mask))
+        masked_ws = weights[indices].log() * mask
 
         generator_categorical = dist.Categorical(logits=masked_ws).to_event(0)
         g_idx = pyro.sample('hom(%s, %s)' % hom, generator_categorical,
@@ -336,6 +349,21 @@ class FreeOperad(pyro.nn.PyroModule):
             raise NotImplementedError()
 
         return arrow
+
+    @functools.lru_cache(maxsize=32)
+    def _bridge_indices(self, dom, cod, pred=None, device=None):
+        if not pred:
+            pred = lambda *args: True
+        if not device:
+            device = torch.device('cpu')
+
+        homs, indices = [], []
+        for hom in self._skeleton_bridges(dom, cod):
+            if pred(hom):
+                homs.append(hom)
+                indices.append(self._node_index(hom))
+        with device:
+            return homs, torch.tensor(indices, dtype=torch.long)
 
     @pnn.pyro_method
     def path_through(self, box, weights, temperature, min_depth=0, infer={}):
@@ -360,22 +388,19 @@ class FreeOperad(pyro.nn.PyroModule):
             return Box(box.name, box.dom, box.cod, data={
                 **box.data, 'function': lambda *xs: ()
             })
-        dest = self._node_index(box.cod)
         if dist.is_validation_enabled():
             nx.shortest_path(self._graph, box.dom, box.cod)
 
         location = box.dom
         path = Id(box.dom)
+        dest = self._node_index(box.cod)
         with pyro.markov():
             while location != box.cod:
                 pred = util.HomsetPredicate(len(path), min_depth, box.cod,
                                             self._generators)
 
-                homs = list(filter(pred, self._skeleton_bridges(location,
-                                                                box.cod)))
-                bs = torch.tensor(list(map(self._node_index, homs)),
-                                  dtype=torch.long)
-                bs = bs.to(device=temperature.device)
+                homs, bs = self._bridge_indices(location, box.cod, pred,
+                                                temperature.device)
 
                 logits = self.diffusions[bs, dest].log() * temperature
                 homs_categorical = dist.Categorical(logits=logits)
