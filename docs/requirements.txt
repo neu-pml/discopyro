@@ -26,7 +26,7 @@ pickleshare==0.7.5
 Pillow==9.3.0
 prompt-toolkit==3.0.21
 ptyprocess==0.7.0
-Pygments==2.10.0
+Pygments==2.15.0
 pyparsing @ file:///home/linux1/recipes/ci/pyparsing_1610983426697/work
 pyro-api==0.1.2
 pyro-ppl==1.7.0
